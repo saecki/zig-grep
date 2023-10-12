@@ -12,3 +12,5 @@
 - exhaustive switch statements
     - useful for enums
 - generics are just comptime functions operating on types
+- inferred struct literal type `.{}`
+- if enum type is known the type can be omitted, `.variant` is sufficient
