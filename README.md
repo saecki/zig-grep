@@ -11,3 +11,4 @@
     - memory leaks are automatically detected in debug mode
 - exhaustive switch statements
     - useful for enums
+- generics are just comptime functions operating on types
