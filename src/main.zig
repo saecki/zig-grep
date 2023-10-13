@@ -15,7 +15,7 @@ const UserOptions = struct {
     heading: bool = true,
     ignore_case: bool = false,
 
-    print_newline: bool = false,
+    print_newline: bool = true,
 };
 
 const StackEntry = struct {
@@ -176,6 +176,8 @@ pub fn main() !void {
             .unknown => {},
         }
     }
+
+    try stdout.context.flush();
 }
 
 fn searchFile(
@@ -206,17 +208,66 @@ fn searchFile(
     // TODO: iterate over lines filling line buffer, while searching for pattern
 
     var file_has_match = false;
+    var line_num: u32 = 1;
     var line_iter = std.mem.splitScalar(u8, text, '\n');
-    var i: u32 = 0;
-    while (line_iter.next()) |line| {
-        var line_has_match = false;
-        var current_pos: usize = 0;
-        var match: c.rure_match = undefined;
-        var match_iter = c.rure_iter_new(regex);
-        defer c.rure_iter_free(match_iter);
+    var last_matched_line: ?[]const u8 = null;
+    var current_pos: usize = 0;
+    var match: c.rure_match = undefined;
+    var match_iter = c.rure_iter_new(regex);
+    defer c.rure_iter_free(match_iter);
 
-        while (c.rure_iter_next(match_iter, @ptrCast(line), line.len, &match)) {
-            if (!file_has_match and user_options.heading) {
+    while (c.rure_iter_next(match_iter, @ptrCast(text), text.len, &match)) {
+        // find current line
+        var current_line: []const u8 = undefined;
+        while (line_iter.peek()) |line| {
+            const line_start = textIndex(text, line);
+            const line_end = line_start + line.len;
+            if (line_start <= match.start and line_end >= match.start) {
+                current_line = line;
+                break;
+            }
+
+            _ = line_iter.next();
+            line_num += 1;
+        }
+
+        // print remainder of last matched line and set position to the current one
+        var first_match_in_line = true;
+        if (last_matched_line) |last| {
+            first_match_in_line = last.ptr != current_line.ptr;
+
+            if (first_match_in_line) {
+                const last_line_end = textIndex(text, last) + last.len;
+                if (current_pos < last_line_end) {
+                    const remainder = text[current_pos..last_line_end];
+                    try stdout.print("{s}\n", .{remainder});
+                } else {
+                    try stdout.print("\n", .{});
+                }
+
+                current_pos = textIndex(text, current_line);
+            }
+        } else {
+            current_pos = textIndex(text, current_line);
+        }
+
+        // print heading
+        if (!file_has_match and user_options.heading) {
+            if (user_options.colored) {
+                try stdout.print("\x1b[35m", .{});
+            }
+            try stdout.print("{s}", .{path});
+            if (user_options.colored) {
+                try stdout.print("\x1b[0m", .{});
+            }
+            try stdout.print("\n", .{});
+
+            file_has_match = true;
+        }
+
+        if (first_match_in_line) {
+            // path
+            if (!user_options.heading) {
                 if (user_options.colored) {
                     try stdout.print("\x1b[34m", .{});
                 }
@@ -224,64 +275,49 @@ fn searchFile(
                 if (user_options.colored) {
                     try stdout.print("\x1b[0m", .{});
                 }
-                try stdout.print("\n", .{});
-
-                file_has_match = true;
-            }
-
-            if (current_pos == 0) {
-                // path
-                if (!user_options.heading) {
-                    if (user_options.colored) {
-                        try stdout.print("\x1b[34m", .{});
-                    }
-                    try stdout.print("{s}", .{path});
-                    if (user_options.colored) {
-                        try stdout.print("\x1b[0m", .{});
-                    }
-                    try stdout.print(":", .{});
-                }
-
-                // line number
-                const line_num = i + 1;
-                if (user_options.colored) {
-                    try stdout.print("\x1b[32m", .{});
-                }
-                try stdout.print("{}", .{line_num});
-                if (user_options.colored) {
-                    try stdout.print("\x1b[0m", .{});
-                }
                 try stdout.print(":", .{});
             }
 
-            if (current_pos != match.start) {
-                const prev_text = line[current_pos..match.start];
-                try stdout.print("{s}", .{prev_text});
-            }
-
-            const match_text = line[match.start..match.end];
+            // line number
             if (user_options.colored) {
-                try stdout.print("\x1b[91m", .{});
+                try stdout.print("\x1b[32m", .{});
             }
-            try stdout.print("{s}", .{match_text});
+            try stdout.print("{}", .{line_num});
             if (user_options.colored) {
                 try stdout.print("\x1b[0m", .{});
             }
-
-            line_has_match = true;
-            current_pos = match.end;
+            try stdout.print(":", .{});
         }
 
-        if (line_has_match) {
-            if (current_pos != line.len) {
-                const remaining_text = line[current_pos..line.len];
-                try stdout.print("{s}\n", .{remaining_text});
-            } else {
-                try stdout.print("\n", .{});
-            }
+        // print preceding text
+        if (current_pos != match.start) {
+            const prev_text = text[current_pos..match.start];
+            try stdout.print("{s}", .{prev_text});
         }
 
-        i += 1;
+        // print the match
+        const match_text = text[match.start..match.end];
+        if (user_options.colored) {
+            try stdout.print("\x1b[31m", .{});
+        }
+        try stdout.print("{s}", .{match_text});
+        if (user_options.colored) {
+            try stdout.print("\x1b[0m", .{});
+        }
+
+        last_matched_line = current_line;
+        current_pos = match.end;
+    }
+
+    // print remainder of last matched line
+    if (last_matched_line) |last| {
+        const last_line_end = textIndex(text, last) + last.len;
+        if (current_pos < last_line_end) {
+            const remainder = text[current_pos..last_line_end];
+            try stdout.print("{s}\n", .{remainder});
+        } else {
+            try stdout.print("\n", .{});
+        }
     }
 
     if (file_has_match and user_options.print_newline) {
@@ -289,4 +325,8 @@ fn searchFile(
     }
 
     _ = line_buffer;
+}
+
+fn textIndex(text_ptr: []const u8, line_ptr: []const u8) usize {
+    return @intFromPtr(line_ptr.ptr) - @intFromPtr(text_ptr.ptr);
 }
