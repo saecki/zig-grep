@@ -28,7 +28,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const stdout = std.io.getStdOut().writer();
+    var unbufferred_stdout = std.io.getStdOut().writer();
+    var buffered = std.io.bufferedWriter(unbufferred_stdout);
+    var stdout = buffered.writer();
 
     // read arguments
     var args = try std.process.argsWithAllocator(allocator);
@@ -177,7 +179,7 @@ pub fn main() !void {
 }
 
 fn searchFile(
-    stdout: File.Writer,
+    stdout: std.io.BufferedWriter(4096, File.Writer).Writer,
     allocator: Allocator,
     text_buffer: *[]u8,
     line_buffer: [][]u8,
