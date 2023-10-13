@@ -2,7 +2,10 @@
 
 ## Build & Run
 - Install the [zig toolchain](https://ziglang.org/download)
-- `zig build run`
+- Install the [rust toolchain](https://rustup.rs/)
+- Initialize the rust regex (`rure`) submodule `git submodule init rure`
+- Build the `rure` crate `cargo build --release --manifest-path=rure/regex-capi/Cargo.toml`
+- Build and run the program `zig build run -- "rure([a-zA-Z_]*)" src`
 
 ## Notes
 - manual memory management
