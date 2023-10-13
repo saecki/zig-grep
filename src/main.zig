@@ -23,7 +23,17 @@ const StackEntry = struct {
     iter: IterableDir.Iterator,
 };
 
-pub fn main() !void {
+const InputError = error{
+    Input,
+};
+
+pub fn main() void {
+    run() catch {
+        std.process.exit(1);
+    };
+}
+
+pub fn run() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -31,6 +41,7 @@ pub fn main() !void {
     var unbufferred_stdout = std.io.getStdOut().writer();
     var buffered = std.io.bufferedWriter(unbufferred_stdout);
     var stdout = buffered.writer();
+    defer stdout.context.flush() catch {};
 
     // read arguments
     var args = try std.process.argsWithAllocator(allocator);
@@ -55,24 +66,24 @@ pub fn main() !void {
             input_path = arg;
         } else {
             try stdout.print("Too many arguments", .{});
-            std.process.exit(1);
+            return error.Input;
         }
     }
 
     const pattern = input_pattern orelse {
         try stdout.print("Missing required positional argument [PATTERN]\n", .{});
-        std.process.exit(1);
+        return error.Input;
     };
 
     // compile regex
     const regex_flags: u32 = if (user_options.ignore_case) @bitCast(c.RURE_FLAG_CASEI) else 0;
-    var regex_error: ?*c.rure_error = null;
+    var regex_error = c.rure_error_new();
+    defer c.rure_error_free(regex_error);
     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
     const regex = maybe_regex orelse {
-        defer c.rure_error_free(regex_error);
         const error_message = c.rure_error_message(regex_error);
-        try stdout.print("Error compiling pattern \"{s}\" regex:{s}\n", .{ pattern, error_message });
-        std.process.exit(1);
+        try stdout.print("Error compiling pattern \"{s}\"\n{s}\n", .{ pattern, error_message });
+        return error.Input;
     };
     defer c.rure_free(regex);
 
@@ -176,8 +187,6 @@ pub fn main() !void {
             .unknown => {},
         }
     }
-
-    try stdout.context.flush();
 }
 
 fn searchFile(
