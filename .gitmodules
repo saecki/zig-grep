@@ -1,0 +1,3 @@
+[submodule "rure"]
+	path = rure
+	url = git@github.com:burntsushi/regex

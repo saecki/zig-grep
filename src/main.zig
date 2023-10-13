@@ -1,3 +1,7 @@
+const c = @cImport({
+    @cInclude("rure.h");
+});
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Dir = std.fs.Dir;
@@ -7,7 +11,7 @@ const IterableDir = std.fs.IterableDir;
 const UserOptions = struct {
     before_context: usize = 0,
     after_context: usize = 0,
-    colored: bool = false,
+    colored: bool = true,
     heading: bool = true,
     ignore_case: bool = false,
 };
@@ -40,6 +44,7 @@ pub fn main() !void {
 
     // parse command line arguments
     while (args.next()) |arg| {
+        // TODO: parse users options
         if (input_pattern == null) {
             input_pattern = arg;
         } else if (input_path == null) {
@@ -51,16 +56,25 @@ pub fn main() !void {
     }
 
     const pattern = input_pattern orelse {
-        try stdout.print("Missing required positional argument [PATTERN]t", .{});
+        try stdout.print("Missing required positional argument [PATTERN]\n", .{});
         std.process.exit(1);
     };
+
+    // compile regex
+    const regex_flags: u32 = if (user_options.ignore_case) @bitCast(c.RURE_FLAG_CASEI) else 0;
+    var regex_error: ?*c.rure_error = null;
+    const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
+    const regex = maybe_regex orelse {
+        defer c.rure_error_free(regex_error);
+        const error_message = c.rure_error_message(regex_error);
+        try stdout.print("Error compiling pattern \"{s}\" regex:{s}\n", .{ pattern, error_message });
+        std.process.exit(1);
+    };
+    defer c.rure_free(regex);
 
     // canonicalize path
     var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const abs_path = try std.fs.realpath(input_path orelse ".", &path_buf);
-
-    try stdout.print("Search pattern {?s}\n", .{pattern});
-    try stdout.print("Search path {?s}\n", .{abs_path});
 
     // open path to search
     const open_options = .{ .no_follow = !follow_links };
@@ -118,7 +132,6 @@ pub fn main() !void {
 
         switch (entry.kind) {
             .file => {
-                try stdout.print("File:    {s}\n", .{name_buffer.items});
                 const open_flags = .{ .mode = .read_only };
                 var file = try current.iter.dir.openFile(entry.name, open_flags);
                 try searchFile(
@@ -128,13 +141,11 @@ pub fn main() !void {
                     line_buffer,
                     name_buffer.items,
                     file,
-                    pattern,
+                    regex,
                     &user_options,
                 );
             },
             .directory => {
-                try stdout.print("Dir:     {s}\n", .{name_buffer.items});
-
                 const new_dir = try current.iter.dir.openIterableDir(entry.name, open_options);
                 const stack_entry = StackEntry{
                     .prev_dirname_len = dirname_len,
@@ -145,7 +156,7 @@ pub fn main() !void {
                 dirname_len += additional_len;
             },
             .sym_link => {
-                try stdout.print("Symlink: {s}\n", .{name_buffer.items});
+                try stdout.print("Symlink: {s}\nTODO: support symlinks", .{name_buffer.items});
                 if (follow_links) {
                     // TODO: follow symlink
                 }
@@ -170,10 +181,9 @@ fn searchFile(
     line_buffer: [][]u8,
     path: []const u8,
     file: File,
-    pattern: []const u8,
+    regex: *c.rure,
     user_options: *const UserOptions,
 ) !void {
-    _ = pattern;
     const stat = try file.stat();
     if (text_buffer.len < stat.size) {
         text_buffer.* = try allocator.realloc(text_buffer.*, stat.size);
@@ -182,18 +192,87 @@ fn searchFile(
     const len = try file.readAll(text_buffer.*);
     const text = text_buffer.*[0..len];
 
+    // TODO: binary file checks
     // TODO: iterate over lines filling line buffer, while searching for pattern
 
-    if (user_options.heading) {
-        if (user_options.colored) {
-            try stdout.print("\x1b[31m", .{});
+    var printed_heading = false;
+    var line_iter = std.mem.splitScalar(u8, text, '\n');
+    var i: u32 = 0;
+    while (line_iter.next()) |line| {
+        var line_has_match = false;
+        var current_pos: usize = 0;
+        var match: c.rure_match = undefined;
+        var match_iter = c.rure_iter_new(regex);
+        defer c.rure_iter_free(match_iter);
+
+        while (c.rure_iter_next(match_iter, @ptrCast(line), line.len, &match)) {
+            if (!printed_heading and user_options.heading) {
+                if (user_options.colored) {
+                    try stdout.print("\x1b[34m", .{});
+                }
+                try stdout.print("{s}", .{path});
+                if (user_options.colored) {
+                    try stdout.print("\x1b[0m", .{});
+                }
+                try stdout.print("\n", .{});
+
+                printed_heading = true;
+            }
+
+            if (current_pos == 0) {
+                // path
+                if (!user_options.heading) {
+                    if (user_options.colored) {
+                        try stdout.print("\x1b[34m", .{});
+                    }
+                    try stdout.print("{s}", .{path});
+                    if (user_options.colored) {
+                        try stdout.print("\x1b[0m", .{});
+                    }
+                    try stdout.print(":", .{});
+                }
+
+                // line number
+                const line_num = i + 1;
+                if (user_options.colored) {
+                    try stdout.print("\x1b[32m", .{});
+                }
+                try stdout.print("{}", .{line_num});
+                if (user_options.colored) {
+                    try stdout.print("\x1b[0m", .{});
+                }
+                try stdout.print(":", .{});
+            }
+
+            if (current_pos != match.start) {
+                const prev_text = line[current_pos..match.start];
+                try stdout.print("{s}", .{prev_text});
+            }
+
+            const match_text = line[match.start..match.end];
+            if (user_options.colored) {
+                try stdout.print("\x1b[91m", .{});
+            }
+            try stdout.print("{s}", .{match_text});
+            if (user_options.colored) {
+                try stdout.print("\x1b[0m", .{});
+            }
+
+            line_has_match = true;
+            current_pos = match.end;
         }
-        try stdout.print("{s}", .{path});
-        if (user_options.colored) {
-            try stdout.print("\x1b[0m", .{});
+
+        if (line_has_match) {
+            if (current_pos != line.len) {
+                const remaining_text = line[current_pos..line.len];
+                try stdout.print("{s}\n", .{remaining_text});
+            } else {
+                try stdout.print("\n", .{});
+            }
         }
-        try stdout.print("\n", .{});
+
+        i += 1;
     }
-    try stdout.print("{s}\n", .{text});
+
     _ = line_buffer;
 }
