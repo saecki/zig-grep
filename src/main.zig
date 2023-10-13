@@ -14,6 +14,8 @@ const UserOptions = struct {
     colored: bool = true,
     heading: bool = true,
     ignore_case: bool = false,
+
+    print_newline: bool = false,
 };
 
 const StackEntry = struct {
@@ -195,7 +197,7 @@ fn searchFile(
     // TODO: binary file checks
     // TODO: iterate over lines filling line buffer, while searching for pattern
 
-    var printed_heading = false;
+    var file_has_match = false;
     var line_iter = std.mem.splitScalar(u8, text, '\n');
     var i: u32 = 0;
     while (line_iter.next()) |line| {
@@ -206,7 +208,7 @@ fn searchFile(
         defer c.rure_iter_free(match_iter);
 
         while (c.rure_iter_next(match_iter, @ptrCast(line), line.len, &match)) {
-            if (!printed_heading and user_options.heading) {
+            if (!file_has_match and user_options.heading) {
                 if (user_options.colored) {
                     try stdout.print("\x1b[34m", .{});
                 }
@@ -216,7 +218,7 @@ fn searchFile(
                 }
                 try stdout.print("\n", .{});
 
-                printed_heading = true;
+                file_has_match = true;
             }
 
             if (current_pos == 0) {
@@ -272,6 +274,10 @@ fn searchFile(
         }
 
         i += 1;
+    }
+
+    if (file_has_match and user_options.print_newline) {
+        try stdout.print("\n", .{});
     }
 
     _ = line_buffer;
