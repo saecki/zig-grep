@@ -194,6 +194,12 @@ fn searchFile(
     const len = try file.readAll(text_buffer.*);
     const text = text_buffer.*[0..len];
 
+    // detect binary files
+    const contains_null_byte = std.mem.containsAtLeast(u8, text, 1, &[_]u8{0x00});
+    if (contains_null_byte) {
+        return;
+    }
+
     // TODO: binary file checks
     // TODO: iterate over lines filling line buffer, while searching for pattern
 
