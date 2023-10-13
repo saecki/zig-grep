@@ -7,15 +7,14 @@ const Allocator = std.mem.Allocator;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
+const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
 
 const UserOptions = struct {
     before_context: usize = 0,
     after_context: usize = 0,
-    colored: bool = true,
+    color: bool = false,
     heading: bool = true,
     ignore_case: bool = false,
-
-    print_newline: bool = true,
 };
 
 const StackEntry = struct {
@@ -27,21 +26,27 @@ const InputError = error{
     Input,
 };
 
-pub fn main() void {
-    run() catch {
-        std.process.exit(1);
-    };
-}
-
-pub fn run() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
+pub fn main() !void {
     var unbufferred_stdout = std.io.getStdOut().writer();
     var buffered = std.io.bufferedWriter(unbufferred_stdout);
     var stdout = buffered.writer();
-    defer stdout.context.flush() catch {};
+
+    run(stdout) catch |err| {
+        if (err == error.Input) {
+            try printHelp(stdout);
+        }
+
+        stdout.context.flush() catch {};
+        std.process.exit(1);
+    };
+
+    stdout.context.flush() catch {};
+}
+
+pub fn run(stdout: BufferedStdout) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     // read arguments
     var args = try std.process.argsWithAllocator(allocator);
@@ -59,13 +64,70 @@ pub fn run() !void {
 
     // parse command line arguments
     while (args.next()) |arg| {
-        // TODO: parse users options
-        if (input_pattern == null) {
+        if (std.mem.startsWith(u8, arg, "--")) {
+            const long_arg = arg[2..];
+            if (std.mem.eql(u8, long_arg, "hidden")) {
+                hidden = true;
+            } else if (std.mem.eql(u8, long_arg, "follow-links")) {
+                follow_links = true;
+            } else if (std.mem.eql(u8, long_arg, "color")) {
+                user_options.color = true;
+            } else if (std.mem.eql(u8, long_arg, "no-heading")) {
+                user_options.heading = false;
+            } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
+                user_options.ignore_case = true;
+            } else if (std.mem.eql(u8, long_arg, "after-context")) {
+                user_options.after_context = try expectNum(stdout, &args, long_arg);
+            } else if (std.mem.eql(u8, long_arg, "before-context")) {
+                user_options.before_context = try expectNum(stdout, &args, long_arg);
+            } else if (std.mem.eql(u8, long_arg, "before-context")) {
+                const n = try expectNum(stdout, &args, long_arg);
+                user_options.before_context = n;
+                user_options.after_context = n;
+            } else if (std.mem.eql(u8, long_arg, "help")) {
+                try printHelp(stdout);
+                return;
+            }
+        } else if (std.mem.startsWith(u8, arg, "-")) {
+            const short_args = arg[1..];
+            for (short_args, 0..) |a, i| {
+                const char_len = utf8_char_len(a);
+                if (char_len > 1) {
+                    const char = short_args[i .. i + char_len];
+                    try stdout.print("Unknown flag \"{s}\"\n", .{char});
+                    return error.Input;
+                }
+
+                switch (a) {
+                    'h' => hidden = true,
+                    'f' => follow_links = true,
+                    'c' => user_options.color = true,
+                    'i' => user_options.ignore_case = true,
+                    'A' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        user_options.after_context = n;
+                    },
+                    'B' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        user_options.before_context = n;
+                    },
+                    'C' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        user_options.before_context = n;
+                        user_options.after_context = n;
+                    },
+                    else => {
+                        try stdout.print("Unknown flag \"{c}\"\n", .{a});
+                        return error.Input;
+                    },
+                }
+            }
+        } else if (input_pattern == null) {
             input_pattern = arg;
         } else if (input_path == null) {
             input_path = arg;
         } else {
-            try stdout.print("Too many arguments", .{});
+            try stdout.print("Too many arguments\n", .{});
             return error.Input;
         }
     }
@@ -171,7 +233,7 @@ pub fn run() !void {
                 dirname_len += additional_len;
             },
             .sym_link => {
-                try stdout.print("Symlink: {s}\nTODO: support symlinks", .{name_buffer.items});
+                try stdout.print("Symlink: {s}\nTODO: support symlinks\n", .{name_buffer.items});
                 if (follow_links) {
                     // TODO: follow symlink
                 }
@@ -190,7 +252,7 @@ pub fn run() !void {
 }
 
 fn searchFile(
-    stdout: std.io.BufferedWriter(4096, File.Writer).Writer,
+    stdout: BufferedStdout,
     allocator: Allocator,
     text_buffer: *[]u8,
     line_buffer: [][]u8,
@@ -262,11 +324,11 @@ fn searchFile(
 
         // print heading
         if (!file_has_match and user_options.heading) {
-            if (user_options.colored) {
+            if (user_options.color) {
                 try stdout.print("\x1b[35m", .{});
             }
             try stdout.print("{s}", .{path});
-            if (user_options.colored) {
+            if (user_options.color) {
                 try stdout.print("\x1b[0m", .{});
             }
             try stdout.print("\n", .{});
@@ -277,22 +339,22 @@ fn searchFile(
         if (first_match_in_line) {
             // path
             if (!user_options.heading) {
-                if (user_options.colored) {
+                if (user_options.color) {
                     try stdout.print("\x1b[34m", .{});
                 }
                 try stdout.print("{s}", .{path});
-                if (user_options.colored) {
+                if (user_options.color) {
                     try stdout.print("\x1b[0m", .{});
                 }
                 try stdout.print(":", .{});
             }
 
             // line number
-            if (user_options.colored) {
+            if (user_options.color) {
                 try stdout.print("\x1b[32m", .{});
             }
             try stdout.print("{}", .{line_num});
-            if (user_options.colored) {
+            if (user_options.color) {
                 try stdout.print("\x1b[0m", .{});
             }
             try stdout.print(":", .{});
@@ -306,11 +368,11 @@ fn searchFile(
 
         // print the match
         const match_text = text[match.start..match.end];
-        if (user_options.colored) {
+        if (user_options.color) {
             try stdout.print("\x1b[31m", .{});
         }
         try stdout.print("{s}", .{match_text});
-        if (user_options.colored) {
+        if (user_options.color) {
             try stdout.print("\x1b[0m", .{});
         }
 
@@ -329,7 +391,7 @@ fn searchFile(
         }
     }
 
-    if (file_has_match and user_options.print_newline) {
+    if (file_has_match and user_options.heading) {
         try stdout.print("\n", .{});
     }
 
@@ -338,4 +400,88 @@ fn searchFile(
 
 fn textIndex(text_ptr: []const u8, line_ptr: []const u8) usize {
     return @intFromPtr(line_ptr.ptr) - @intFromPtr(text_ptr.ptr);
+}
+
+fn printHelp(stdout: BufferedStdout) !void {
+    const HELP_MESSAGE =
+        \\
+        \\usage: searcher [OPTIONS] PATTERN [PATH ...]
+        \\ -A,--after-context <arg>     prints the given number of following lines
+        \\                              for each match
+        \\ -B,--before-context <arg>    prints the given number of preceding lines
+        \\                              for each match
+        \\ -c,--color                   print with colors, highlighting the matched
+        \\                              phrase in the output
+        \\ -C,--context <arg>           prints the number of preceding and following
+        \\                              lines for each match. this is equivalent to
+        \\                              setting --before-context and --after-context
+        \\ -h,--hidden                  search hidden files and folders
+        \\ -f,--follow-links            follow symbolic links
+        \\    --help                    print this message
+        \\ -i,--ignore-case             search case insensitive
+        \\    --no-heading              prints a single line including the filename
+        \\                              for each match, instead of grouping matches
+        \\                              by file
+        \\
+    ;
+    try stdout.print(HELP_MESSAGE, .{});
+}
+
+fn expectNumAfterShortArg(
+    stdout: BufferedStdout,
+    args: *std.process.ArgIterator,
+    short_args: []const u8,
+    index: usize,
+) !usize {
+    if (index != short_args.len - 1) {
+        try stdout.print("Missing value after \"{s}\"", .{short_args[index .. index + 1]});
+        return error.Input;
+    }
+
+    return expectNum(stdout, args, short_args[index .. index + 1]);
+}
+
+fn expectNum(
+    stdout: BufferedStdout,
+    args: *std.process.ArgIterator,
+    name: []const u8,
+) !usize {
+    const str = args.next() orelse {
+        try stdout.print("Missing value after \"{s}\"\n", .{name});
+        return error.Input;
+    };
+
+    const num = std.fmt.parseInt(usize, str, 10) catch {
+        try stdout.print("Expected number for \"{s}\", found \"{s}\"\n", .{ name, str });
+        return error.Input;
+    };
+
+    return num;
+}
+
+fn utf8_char_len(first_byte: u8) usize {
+    var leading_ones: u8 = 0;
+    const HIGH_BYTE: u8 = 0x80;
+    while (((HIGH_BYTE >> @truncate(leading_ones)) & first_byte) != 0) {
+        leading_ones += 1;
+    }
+    switch (leading_ones) {
+        0 => return 1,
+        1 => return 1,
+        else => return @as(usize, leading_ones),
+    }
+}
+
+fn check(string: []const u8, len: usize) !void {
+    const first_byte = string[0];
+    const char_len = utf8_char_len(first_byte);
+    std.debug.print("{s}, first_byte: {b}, char_len {}\n", .{ string, first_byte, char_len });
+    try std.testing.expectEqual(char_len, len);
+}
+
+test "utf-8 char len" {
+    try check("a", 1);
+    try check("ö", 2);
+    try check("\u{2757}", 3);
+    try check("\u{01FAE0}", 4);
 }
