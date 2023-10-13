@@ -17,3 +17,7 @@
 - generics are just comptime functions operating on types
 - inferred struct literal type `.{}`
 - if enum type is known the type can be omitted, `.variant` is sufficient
+- errors as values
+    - error union explicit or implict
+    - try: return on error
+    - catch: handle error
