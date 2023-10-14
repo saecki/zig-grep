@@ -4,10 +4,20 @@ const c = @cImport({
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
 const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
+
+const Context = struct {
+    stdout: BufferedStdout,
+    regex: *c.rure,
+    dir_stack: ArrayList(StackEntry),
+    name_buf: ArrayList(u8),
+    text_buf: ArrayList(u8),
+    line_buf: [][]const u8,
+};
 
 const UserOptions = struct {
     before_context: usize = 0,
@@ -15,6 +25,8 @@ const UserOptions = struct {
     color: bool = false,
     heading: bool = true,
     ignore_case: bool = false,
+    follow_links: bool = false,
+    hidden: bool = false,
 };
 
 const StackEntry = struct {
@@ -60,32 +72,30 @@ pub fn run(stdout: BufferedStdout) !void {
     var input_pattern: ?[]const u8 = null;
     var input_path: ?[]const u8 = null;
 
-    var follow_links = false;
-    var hidden = false;
-    var user_options = UserOptions{};
+    var opts = UserOptions{};
 
     // parse command line arguments
     while (args.next()) |arg| {
         if (std.mem.startsWith(u8, arg, "--")) {
             const long_arg = arg[2..];
             if (std.mem.eql(u8, long_arg, "hidden")) {
-                hidden = true;
+                opts.hidden = true;
             } else if (std.mem.eql(u8, long_arg, "follow-links")) {
-                follow_links = true;
+                opts.follow_links = true;
             } else if (std.mem.eql(u8, long_arg, "color")) {
-                user_options.color = true;
+                opts.color = true;
             } else if (std.mem.eql(u8, long_arg, "no-heading")) {
-                user_options.heading = false;
+                opts.heading = false;
             } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
-                user_options.ignore_case = true;
+                opts.ignore_case = true;
             } else if (std.mem.eql(u8, long_arg, "after-context")) {
-                user_options.after_context = try expectNum(stdout, &args, long_arg);
+                opts.after_context = try expectNum(stdout, &args, long_arg);
             } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                user_options.before_context = try expectNum(stdout, &args, long_arg);
+                opts.before_context = try expectNum(stdout, &args, long_arg);
             } else if (std.mem.eql(u8, long_arg, "before-context")) {
                 const n = try expectNum(stdout, &args, long_arg);
-                user_options.before_context = n;
-                user_options.after_context = n;
+                opts.before_context = n;
+                opts.after_context = n;
             } else if (std.mem.eql(u8, long_arg, "help")) {
                 try printHelp(stdout);
                 return;
@@ -101,22 +111,22 @@ pub fn run(stdout: BufferedStdout) !void {
                 }
 
                 switch (a) {
-                    'h' => hidden = true,
-                    'f' => follow_links = true,
-                    'c' => user_options.color = true,
-                    'i' => user_options.ignore_case = true,
+                    'h' => opts.hidden = true,
+                    'f' => opts.follow_links = true,
+                    'c' => opts.color = true,
+                    'i' => opts.ignore_case = true,
                     'A' => {
                         const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        user_options.after_context = n;
+                        opts.after_context = n;
                     },
                     'B' => {
                         const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        user_options.before_context = n;
+                        opts.before_context = n;
                     },
                     'C' => {
                         const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        user_options.before_context = n;
-                        user_options.after_context = n;
+                        opts.before_context = n;
+                        opts.after_context = n;
                     },
                     else => {
                         try stdout.print("Unknown flag \"{c}\"\n", .{a});
@@ -129,6 +139,7 @@ pub fn run(stdout: BufferedStdout) !void {
         } else if (input_path == null) {
             input_path = arg;
         } else {
+            // TODO: list of input paths
             try stdout.print("Too many arguments\n", .{});
             return error.Input;
         }
@@ -140,7 +151,7 @@ pub fn run(stdout: BufferedStdout) !void {
     };
 
     // compile regex
-    const regex_flags: u32 = if (user_options.ignore_case) @bitCast(c.RURE_FLAG_CASEI) else 0;
+    const regex_flags: u32 = if (opts.ignore_case) @bitCast(c.RURE_FLAG_CASEI) else 0;
     var regex_error = c.rure_error_new();
     defer c.rure_error_free(regex_error);
     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
@@ -151,61 +162,110 @@ pub fn run(stdout: BufferedStdout) !void {
     };
     defer c.rure_free(regex);
 
+    // the stack of searched directories
+    var dir_stack = ArrayList(StackEntry).init(allocator);
+    defer dir_stack.deinit();
+    var name_buf = ArrayList(u8).init(allocator);
+    defer name_buf.deinit();
+
+    // reuse text buffers
+    var text_buf = ArrayList(u8).init(allocator);
+    defer text_buf.deinit();
+    var line_buf: [][]u8 = try allocator.alloc([]u8, opts.before_context);
+    defer allocator.free(line_buf);
+
+    var ctx = Context{
+        .stdout = stdout,
+        .regex = regex,
+        .dir_stack = dir_stack,
+        .name_buf = name_buf,
+        .text_buf = text_buf,
+        .line_buf = line_buf,
+    };
+
+    try searchPath(&ctx, &opts, input_path);
+}
+
+fn searchPath(
+    ctx: *Context,
+    opts: *const UserOptions,
+    input_path: ?[]const u8,
+) !void {
     // canonicalize path
     var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const abs_path = try std.fs.realpath(input_path orelse ".", &path_buf);
 
+    if (input_path) |p| {
+        const open_flags = .{ .mode = .read_only };
+        const file = try std.fs.openFileAbsolute(abs_path, open_flags);
+        defer file.close();
+
+        const stat = try file.stat();
+        switch (stat.kind) {
+            .file => {
+                try searchFile(ctx, opts, p, file);
+                return;
+            },
+            .directory => {},
+            .sym_link => {
+                if (opts.follow_links) {
+                    var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
+                    try searchLink(ctx, opts, link);
+                }
+                return;
+            },
+            // ignore
+            .block_device => {},
+            .character_device => {},
+            .named_pipe => {},
+            .unix_domain_socket => {},
+            .whiteout => {},
+            .door => {},
+            .event_port => {},
+            .unknown => {},
+        }
+    }
+
     // open path to search
-    const open_options = .{ .no_follow = !follow_links };
+    const open_options = .{ .no_follow = !opts.follow_links };
     const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
 
     // the currently searched path name
     var dirname_len: usize = 0;
-    var name_buffer = std.ArrayList(u8).init(allocator);
-    defer name_buffer.deinit();
     if (input_path) |p| {
-        try name_buffer.appendSlice(p);
+        try ctx.name_buf.appendSlice(p);
         dirname_len += p.len;
     }
 
-    // the stack of searched directories
-    var dir_stack = std.ArrayList(StackEntry).init(allocator);
-    defer dir_stack.deinit();
-
-    // reuse text buffers
-    var text_buffer: []u8 = &[_]u8{};
-    defer allocator.free(text_buffer);
-    var line_buffer: [][]u8 = try allocator.alloc([]u8, user_options.before_context);
-    defer allocator.free(line_buffer);
-
     // push first dir entry
-    try dir_stack.append(StackEntry{
+    try ctx.dir_stack.append(StackEntry{
         .prev_dirname_len = 0,
         .iter = dir.iterate(),
     });
 
     // recursively search the path
-    while (dir_stack.items.len != 0) {
-        name_buffer.shrinkRetainingCapacity(dirname_len);
+    while (ctx.dir_stack.items.len != 0) {
+        ctx.name_buf.shrinkRetainingCapacity(dirname_len);
 
-        var current = &dir_stack.items[dir_stack.items.len - 1];
+        var current = &ctx.dir_stack.items[ctx.dir_stack.items.len - 1];
         var entry = try current.iter.next() orelse {
             dirname_len = current.prev_dirname_len;
             current.iter.dir.close();
-            _ = dir_stack.pop();
+            _ = ctx.dir_stack.pop();
             continue;
         };
 
         var additional_len: usize = 0;
-        if (dirname_len != 0 and name_buffer.items[dirname_len - 1] != '/') {
-            try name_buffer.append(std.fs.path.sep);
+        if (dirname_len != 0 and ctx.name_buf.items[dirname_len - 1] != '/') {
+            try ctx.name_buf.append(std.fs.path.sep);
             additional_len += 1;
         }
-        try name_buffer.appendSlice(entry.name);
+        try ctx.name_buf.appendSlice(entry.name);
         additional_len += entry.name.len;
 
         // skip hidden files
-        if (!hidden and entry.name[0] == '.') {
+        if (!opts.hidden and entry.name[0] == '.') {
             continue;
         }
 
@@ -213,16 +273,8 @@ pub fn run(stdout: BufferedStdout) !void {
             .file => {
                 const open_flags = .{ .mode = .read_only };
                 var file = try current.iter.dir.openFile(entry.name, open_flags);
-                try searchFile(
-                    stdout,
-                    allocator,
-                    &text_buffer,
-                    line_buffer,
-                    name_buffer.items,
-                    file,
-                    regex,
-                    &user_options,
-                );
+                defer file.close();
+                try searchFile(ctx, opts, ctx.name_buf.items, file);
             },
             .directory => {
                 const new_dir = try current.iter.dir.openIterableDir(entry.name, open_options);
@@ -230,14 +282,15 @@ pub fn run(stdout: BufferedStdout) !void {
                     .prev_dirname_len = dirname_len,
                     .iter = new_dir.iterate(),
                 };
-                try dir_stack.append(stack_entry);
+                try ctx.dir_stack.append(stack_entry);
 
                 dirname_len += additional_len;
             },
             .sym_link => {
-                try stdout.print("Symlink: {s}\nTODO: support symlinks\n", .{name_buffer.items});
-                if (follow_links) {
-                    // TODO: follow symlink
+                if (opts.follow_links) {
+                    var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    const link = try current.iter.dir.readLink(entry.name, &link_buf);
+                    try searchLink(ctx, opts, link);
                 }
             },
             // ignore
@@ -253,23 +306,19 @@ pub fn run(stdout: BufferedStdout) !void {
     }
 }
 
-fn searchFile(
-    stdout: BufferedStdout,
-    allocator: Allocator,
-    text_buffer: *[]u8,
-    line_buffer: [][]u8,
-    path: []const u8,
-    file: File,
-    regex: *c.rure,
-    user_options: *const UserOptions,
-) !void {
-    const stat = try file.stat();
-    if (text_buffer.len < stat.size) {
-        text_buffer.* = try allocator.realloc(text_buffer.*, stat.size);
-    }
+fn searchLink(ctx: *Context, opts: *const UserOptions, linked_path: []const u8) !void {
+    _ = opts;
+    // TODO: allocate new context and follow link
+    try ctx.stdout.print("TODO: follow link: {s}", .{linked_path});
+}
 
-    const len = try file.readAll(text_buffer.*);
-    const text = text_buffer.*[0..len];
+fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
+    // TODO: fixed size text buffer, read files incrementally
+    const stat = try file.stat();
+    try ctx.text_buf.resize(stat.size);
+
+    const len = try file.readAll(ctx.text_buf.items);
+    const text = ctx.text_buf.items[0..len];
 
     // detect binary files
     const contains_null_byte = std.mem.containsAtLeast(u8, text, 1, &[_]u8{0x00});
@@ -277,7 +326,6 @@ fn searchFile(
         return;
     }
 
-    // TODO: binary file checks
     // TODO: iterate over lines filling line buffer, while searching for pattern
 
     var file_has_match = false;
@@ -286,7 +334,7 @@ fn searchFile(
     var last_matched_line: ?[]const u8 = null;
     var current_pos: usize = 0;
     var match: c.rure_match = undefined;
-    var match_iter = c.rure_iter_new(regex);
+    var match_iter = c.rure_iter_new(ctx.regex);
     defer c.rure_iter_free(match_iter);
 
     while (c.rure_iter_next(match_iter, @ptrCast(text), text.len, &match)) {
@@ -313,9 +361,9 @@ fn searchFile(
                 const last_line_end = textIndex(text, last) + last.len;
                 if (current_pos < last_line_end) {
                     const remainder = text[current_pos..last_line_end];
-                    try stdout.print("{s}\n", .{remainder});
+                    try ctx.stdout.print("{s}\n", .{remainder});
                 } else {
-                    try stdout.print("\n", .{});
+                    try ctx.stdout.print("\n", .{});
                 }
 
                 current_pos = textIndex(text, current_line);
@@ -325,57 +373,57 @@ fn searchFile(
         }
 
         // print heading
-        if (!file_has_match and user_options.heading) {
-            if (user_options.color) {
-                try stdout.print("\x1b[35m", .{});
+        if (!file_has_match and opts.heading) {
+            if (opts.color) {
+                try ctx.stdout.print("\x1b[35m", .{});
             }
-            try stdout.print("{s}", .{path});
-            if (user_options.color) {
-                try stdout.print("\x1b[0m", .{});
+            try ctx.stdout.print("{s}", .{path});
+            if (opts.color) {
+                try ctx.stdout.print("\x1b[0m", .{});
             }
-            try stdout.print("\n", .{});
+            try ctx.stdout.print("\n", .{});
 
             file_has_match = true;
         }
 
         if (first_match_in_line) {
             // path
-            if (!user_options.heading) {
-                if (user_options.color) {
-                    try stdout.print("\x1b[34m", .{});
+            if (!opts.heading) {
+                if (opts.color) {
+                    try ctx.stdout.print("\x1b[34m", .{});
                 }
-                try stdout.print("{s}", .{path});
-                if (user_options.color) {
-                    try stdout.print("\x1b[0m", .{});
+                try ctx.stdout.print("{s}", .{path});
+                if (opts.color) {
+                    try ctx.stdout.print("\x1b[0m", .{});
                 }
-                try stdout.print(":", .{});
+                try ctx.stdout.print(":", .{});
             }
 
             // line number
-            if (user_options.color) {
-                try stdout.print("\x1b[32m", .{});
+            if (opts.color) {
+                try ctx.stdout.print("\x1b[32m", .{});
             }
-            try stdout.print("{}", .{line_num});
-            if (user_options.color) {
-                try stdout.print("\x1b[0m", .{});
+            try ctx.stdout.print("{}", .{line_num});
+            if (opts.color) {
+                try ctx.stdout.print("\x1b[0m", .{});
             }
-            try stdout.print(":", .{});
+            try ctx.stdout.print(":", .{});
         }
 
         // print preceding text
         if (current_pos != match.start) {
             const prev_text = text[current_pos..match.start];
-            try stdout.print("{s}", .{prev_text});
+            try ctx.stdout.print("{s}", .{prev_text});
         }
 
         // print the match
         const match_text = text[match.start..match.end];
-        if (user_options.color) {
-            try stdout.print("\x1b[31m", .{});
+        if (opts.color) {
+            try ctx.stdout.print("\x1b[31m", .{});
         }
-        try stdout.print("{s}", .{match_text});
-        if (user_options.color) {
-            try stdout.print("\x1b[0m", .{});
+        try ctx.stdout.print("{s}", .{match_text});
+        if (opts.color) {
+            try ctx.stdout.print("\x1b[0m", .{});
         }
 
         last_matched_line = current_line;
@@ -387,21 +435,19 @@ fn searchFile(
         const last_line_end = textIndex(text, last) + last.len;
         if (current_pos < last_line_end) {
             const remainder = text[current_pos..last_line_end];
-            try stdout.print("{s}\n", .{remainder});
+            try ctx.stdout.print("{s}\n", .{remainder});
         } else {
-            try stdout.print("\n", .{});
+            try ctx.stdout.print("\n", .{});
         }
     }
 
-    if (file_has_match and user_options.heading) {
-        try stdout.print("\n", .{});
+    if (file_has_match and opts.heading) {
+        try ctx.stdout.print("\n", .{});
     }
-
-    _ = line_buffer;
 }
 
-fn textIndex(text_ptr: []const u8, line_ptr: []const u8) usize {
-    return @intFromPtr(line_ptr.ptr) - @intFromPtr(text_ptr.ptr);
+fn textIndex(text: []const u8, slice_of_text: []const u8) usize {
+    return @intFromPtr(slice_of_text.ptr) - @intFromPtr(text.ptr);
 }
 
 fn printHelp(stdout: BufferedStdout) !void {
