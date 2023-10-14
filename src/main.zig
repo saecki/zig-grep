@@ -34,6 +34,8 @@ pub fn main() !void {
     run(stdout) catch |err| {
         if (err == error.Input) {
             try printHelp(stdout);
+        } else {
+            try stdout.print("{}", .{err});
         }
 
         stdout.context.flush() catch {};
