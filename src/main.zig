@@ -28,6 +28,7 @@ const UserOptions = struct {
     ignore_case: bool = false,
     follow_links: bool = false,
     hidden: bool = false,
+    debug: bool = false,
 };
 
 const StackEntry = struct {
@@ -136,6 +137,8 @@ pub fn run(stdout: BufferedStdout) !void {
                 opts.heading = false;
             } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
                 opts.ignore_case = true;
+            } else if (std.mem.eql(u8, long_arg, "debug")) {
+                opts.debug = true;
             } else if (std.mem.eql(u8, long_arg, "after-context")) {
                 opts.after_context = try expectNum(stdout, &args, long_arg);
             } else if (std.mem.eql(u8, long_arg, "before-context")) {
@@ -163,6 +166,7 @@ pub fn run(stdout: BufferedStdout) !void {
                     'f' => opts.follow_links = true,
                     'c' => opts.color = true,
                     'i' => opts.ignore_case = true,
+                    'd' => opts.debug = true,
                     'A' => {
                         const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
                         opts.after_context = n;
@@ -262,6 +266,8 @@ fn searchPath(
                     var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
                     try searchLink(ctx, opts, abs_path, "", link);
+                } else if (opts.debug) {
+                    try ctx.stdout.print("Not following link: \"{s}\"\n", .{p});
                 }
                 return;
             },
@@ -278,7 +284,7 @@ fn searchPath(
     }
 
     // open path to search
-    const open_options = .{ .no_follow = !opts.follow_links };
+    const open_options = .{ .no_follow = true };
     const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
 
     // the currently searched path name
@@ -316,6 +322,9 @@ fn searchPath(
 
         // skip hidden files
         if (!opts.hidden and entry.name[0] == '.') {
+            if (opts.debug) {
+                try ctx.stdout.print("Not searching hidden path: \"{s}\"\n", .{ctx.name_buf.items});
+            }
             continue;
         }
 
@@ -350,6 +359,8 @@ fn searchPath(
                     }
                     const sub_path = ctx.name_buf.items[sub_path_idx..];
                     try searchLink(ctx, opts, abs_path, sub_path, link);
+                } else if (opts.debug) {
+                    try ctx.stdout.print("Not following link: \"{s}\"\n", .{ctx.name_buf.items});
                 }
             },
             // ignore
@@ -551,8 +562,9 @@ fn printHelp(stdout: BufferedStdout) !void {
         \\ -C,--context <arg>           prints the number of preceding and following
         \\                              lines for each match. this is equivalent to
         \\                              setting --before-context and --after-context
-        \\ -h,--hidden                  search hidden files and folders
+        \\ -d,--debug                   print why paths aren't searched
         \\ -f,--follow-links            follow symbolic links
+        \\ -h,--hidden                  search hidden files and folders
         \\    --help                    print this message
         \\ -i,--ignore-case             search case insensitive
         \\    --no-heading              prints a single line including the filename
