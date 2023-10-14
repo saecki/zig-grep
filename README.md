@@ -5,7 +5,8 @@
 - Install the [rust toolchain](https://rustup.rs/)
 - Initialize the rust regex (`rure`) submodule `git submodule init rure`
 - Build the `rure` crate `cargo build --release --manifest-path=rure/regex-capi/Cargo.toml`
-- Build and run the program `zig build run -- "rure([a-zA-Z_]*)" src`
+- Build and run the program `zig build -Doptimize=ReleaseFast run -- -c "rure([a-zA-Z_]*)" src`
+- The executable should now be at `zig-out/bin/zig-grep`
 
 ## Notes
 - manual memory management
