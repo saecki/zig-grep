@@ -14,10 +14,9 @@ const Context = struct {
     stdout: BufferedStdout,
     allocator: Allocator,
     regex: *c.rure,
-    dir_stack: ArrayList(StackEntry),
-    name_buf: ArrayList(u8),
-    text_buf: ArrayList(u8),
-    line_buf: [][]const u8,
+    dir_stack: *ArrayList(StackEntry),
+    name_buf: *ArrayList(u8),
+    text_buf: *ArrayList(u8),
 };
 
 const UserOptions = struct {
@@ -85,9 +84,17 @@ const ResourceError = error{
     WouldBlock,
 };
 
-pub fn main() !void {
-    var unbufferred_stdout = std.io.getStdOut().writer();
-    var buffered = std.io.bufferedWriter(unbufferred_stdout);
+pub fn main() void {
+    wrap_run() catch {
+        std.process.exit(1);
+    };
+}
+
+fn wrap_run() !void {
+    var unbufferred_stdout = std.io.getStdOut();
+    defer unbufferred_stdout.close();
+    var buffered = std.io.bufferedWriter(unbufferred_stdout.writer());
+    defer buffered.flush() catch {};
     var stdout = buffered.writer();
 
     run(stdout) catch |err| {
@@ -99,14 +106,11 @@ pub fn main() !void {
             try stdout.print("{}\n", .{err});
         }
 
-        stdout.context.flush() catch {};
-        std.process.exit(1);
+        return err;
     };
-
-    stdout.context.flush() catch {};
 }
 
-pub fn run(stdout: BufferedStdout) !void {
+fn run(stdout: BufferedStdout) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -223,19 +227,15 @@ pub fn run(stdout: BufferedStdout) !void {
     // reuse text buffers
     var text_buf = ArrayList(u8).init(allocator);
     defer text_buf.deinit();
-    var line_buf: [][]u8 = try allocator.alloc([]u8, opts.before_context);
-    defer allocator.free(line_buf);
 
     var ctx = Context{
         .stdout = stdout,
         .allocator = allocator,
         .regex = regex,
-        .dir_stack = dir_stack,
-        .name_buf = name_buf,
-        .text_buf = text_buf,
-        .line_buf = line_buf,
+        .dir_stack = &dir_stack,
+        .name_buf = &name_buf,
+        .text_buf = &text_buf,
     };
-
 
     if (input_paths.items.len == 0) {
         // canonicalize path
@@ -414,10 +414,9 @@ fn searchLink(
         .stdout = ctx.stdout,
         .allocator = ctx.allocator,
         .regex = ctx.regex,
-        .dir_stack = dir_stack,
-        .name_buf = name_buf,
+        .dir_stack = &dir_stack,
+        .name_buf = &name_buf,
         .text_buf = ctx.text_buf,
-        .line_buf = ctx.line_buf,
     };
 
     try searchPath(&new_ctx, opts, link_path, abs_link_path);
