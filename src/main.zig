@@ -150,6 +150,9 @@ pub fn run(stdout: BufferedStdout) !void {
             } else if (std.mem.eql(u8, long_arg, "help")) {
                 try printHelp(stdout);
                 return;
+            } else {
+                try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
+                return error.Input;
             }
         } else if (std.mem.startsWith(u8, arg, "-")) {
             const short_args = arg[1..];
@@ -181,7 +184,7 @@ pub fn run(stdout: BufferedStdout) !void {
                         opts.after_context = n;
                     },
                     else => {
-                        try stdout.print("Unknown flag \"{c}\"\n", .{a});
+                        try stdout.print("Unknown option \"{c}\"\n", .{a});
                         return error.Input;
                     },
                 }
