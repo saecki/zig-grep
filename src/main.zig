@@ -119,7 +119,8 @@ pub fn run(stdout: BufferedStdout) !void {
     _ = args.next();
 
     var input_pattern: ?[]const u8 = null;
-    var input_path: ?[]const u8 = null;
+    var input_paths = ArrayList([]const u8).init(allocator);
+    defer input_paths.deinit();
 
     var opts = UserOptions{};
 
@@ -191,12 +192,8 @@ pub fn run(stdout: BufferedStdout) !void {
             }
         } else if (input_pattern == null) {
             input_pattern = arg;
-        } else if (input_path == null) {
-            input_path = arg;
         } else {
-            // TODO: list of input paths
-            try stdout.print("Too many arguments\n", .{});
-            return error.Input;
+            try input_paths.append(arg);
         }
     }
 
@@ -239,11 +236,22 @@ pub fn run(stdout: BufferedStdout) !void {
         .line_buf = line_buf,
     };
 
-    // canonicalize path
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const abs_path = try std.fs.realpath(input_path orelse ".", &path_buf);
 
-    try searchPath(&ctx, &opts, input_path, abs_path);
+    if (input_paths.items.len == 0) {
+        // canonicalize path
+        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const abs_path = try std.fs.realpath(".", &path_buf);
+
+        try searchPath(&ctx, &opts, null, abs_path);
+    } else {
+        for (input_paths.items) |input_path| {
+            // canonicalize path
+            var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const abs_path = try std.fs.realpath(input_path, &path_buf);
+
+            try searchPath(&ctx, &opts, input_path, abs_path);
+        }
+    }
 }
 
 fn searchPath(
@@ -291,6 +299,7 @@ fn searchPath(
     const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
 
     // the currently searched path name
+    ctx.name_buf.clearRetainingCapacity();
     var dirname_len: usize = 0;
     if (input_path) |p| {
         try ctx.name_buf.appendSlice(p);
