@@ -12,6 +12,7 @@ const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
 
 const Context = struct {
     stdout: BufferedStdout,
+    allocator: Allocator,
     regex: *c.rure,
     dir_stack: ArrayList(StackEntry),
     name_buf: ArrayList(u8),
@@ -34,8 +35,53 @@ const StackEntry = struct {
     iter: IterableDir.Iterator,
 };
 
-const InputError = error{
+const GrepError = error{
     Input,
+    Loop,
+};
+
+const ResourceError = error{
+    AccessDenied,
+    BadPathName,
+    BrokenPipe,
+    ConnectionResetByPeer,
+    ConnectionTimedOut,
+    DeviceBusy,
+    DiskQuota,
+    FileBusy,
+    FileLocksNotSupported,
+    FileNotFound,
+    FileSystem,
+    FileTooBig,
+    InputOutput,
+    InvalidArgument,
+    InvalidHandle,
+    InvalidUtf8,
+    IsDir,
+    LockViolation,
+    NameTooLong,
+    NetNameDeleted,
+    NetworkNotFound,
+    NoDevice,
+    NoSpaceLeft,
+    NotDir,
+    NotLink,
+    NotOpenForReading,
+    NotOpenForWriting,
+    NotSupported,
+    OperationAborted,
+    OutOfMemory,
+    PathAlreadyExists,
+    PipeBusy,
+    ProcessFdQuotaExceeded,
+    SharingViolation,
+    SymLinkLoop,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    Unexpected,
+    UnsupportedPointType,
+    UnsupportedReparsePointType,
+    WouldBlock,
 };
 
 pub fn main() !void {
@@ -46,8 +92,10 @@ pub fn main() !void {
     run(stdout) catch |err| {
         if (err == error.Input) {
             try printHelp(stdout);
+        } else if (err == error.Loop) {
+            // print nothing
         } else {
-            try stdout.print("{}", .{err});
+            try stdout.print("{}\n", .{err});
         }
 
         stdout.context.flush() catch {};
@@ -176,6 +224,7 @@ pub fn run(stdout: BufferedStdout) !void {
 
     var ctx = Context{
         .stdout = stdout,
+        .allocator = allocator,
         .regex = regex,
         .dir_stack = dir_stack,
         .name_buf = name_buf,
@@ -183,18 +232,19 @@ pub fn run(stdout: BufferedStdout) !void {
         .line_buf = line_buf,
     };
 
-    try searchPath(&ctx, &opts, input_path);
+    // canonicalize path
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const abs_path = try std.fs.realpath(input_path orelse ".", &path_buf);
+
+    try searchPath(&ctx, &opts, input_path, abs_path);
 }
 
 fn searchPath(
     ctx: *Context,
     opts: *const UserOptions,
     input_path: ?[]const u8,
-) !void {
-    // canonicalize path
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const abs_path = try std.fs.realpath(input_path orelse ".", &path_buf);
-
+    abs_path: []const u8,
+) (GrepError || ResourceError)!void {
     if (input_path) |p| {
         const open_flags = .{ .mode = .read_only };
         const file = try std.fs.openFileAbsolute(abs_path, open_flags);
@@ -211,19 +261,19 @@ fn searchPath(
                 if (opts.follow_links) {
                     var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
-                    try searchLink(ctx, opts, link);
+                    try searchLink(ctx, opts, abs_path, "", link);
                 }
                 return;
             },
             // ignore
-            .block_device => {},
-            .character_device => {},
-            .named_pipe => {},
-            .unix_domain_socket => {},
-            .whiteout => {},
-            .door => {},
-            .event_port => {},
-            .unknown => {},
+            .block_device => return,
+            .character_device => return,
+            .named_pipe => return,
+            .unix_domain_socket => return,
+            .whiteout => return,
+            .door => return,
+            .event_port => return,
+            .unknown => return,
         }
     }
 
@@ -290,7 +340,16 @@ fn searchPath(
                 if (opts.follow_links) {
                     var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     const link = try current.iter.dir.readLink(entry.name, &link_buf);
-                    try searchLink(ctx, opts, link);
+                    var sub_path_idx: usize = 0;
+                    if (input_path) |p| {
+                        if (p.len == 0 or p[p.len - 1] == std.fs.path.sep) {
+                            sub_path_idx = p.len;
+                        } else {
+                            sub_path_idx = p.len + 1;
+                        }
+                    }
+                    const sub_path = ctx.name_buf.items[sub_path_idx..];
+                    try searchLink(ctx, opts, abs_path, sub_path, link);
                 }
             },
             // ignore
@@ -306,10 +365,39 @@ fn searchPath(
     }
 }
 
-fn searchLink(ctx: *Context, opts: *const UserOptions, linked_path: []const u8) !void {
-    _ = opts;
-    // TODO: allocate new context and follow link
-    try ctx.stdout.print("TODO: follow link: {s}", .{linked_path});
+fn searchLink(
+    ctx: *Context,
+    opts: *const UserOptions,
+    abs_search_path: []const u8,
+    sub_search_path: []const u8,
+    link_path: []const u8,
+) (GrepError || ResourceError)!void {
+    // canonicalize path
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const abs_link_path = try std.fs.realpath(link_path, &path_buf);
+
+    if (symlinkLoops(abs_search_path, sub_search_path, abs_link_path)) {
+        try ctx.stdout.print("Loop detected \"{s}\" points to ancetor \"{s}\"\n", .{ sub_search_path, link_path });
+        return error.Loop;
+    }
+
+    // the stack of searched directories
+    var dir_stack = ArrayList(StackEntry).init(ctx.allocator);
+    defer dir_stack.deinit();
+    var name_buf = ArrayList(u8).init(ctx.allocator);
+    defer name_buf.deinit();
+
+    var new_ctx = Context{
+        .stdout = ctx.stdout,
+        .allocator = ctx.allocator,
+        .regex = ctx.regex,
+        .dir_stack = dir_stack,
+        .name_buf = name_buf,
+        .text_buf = ctx.text_buf,
+        .line_buf = ctx.line_buf,
+    };
+
+    try searchPath(&new_ctx, opts, link_path, abs_link_path);
 }
 
 fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
@@ -507,6 +595,38 @@ fn expectNum(
     return num;
 }
 
+fn symlinkLoops(
+    abs_search_path: []const u8,
+    sub_search_path: []const u8,
+    abs_link_path: []const u8,
+) bool {
+    // loop outside search directory
+    if (std.mem.startsWith(u8, abs_search_path, abs_link_path)) {
+        return true;
+    }
+
+    // loop inside search directory
+    if (std.mem.startsWith(u8, abs_link_path, abs_search_path)) {
+        if (abs_search_path.len == abs_link_path.len) {
+            return true;
+        }
+
+        const sub_link_path = abs_link_path[abs_search_path.len + 1 ..];
+        if (std.mem.startsWith(u8, sub_search_path, sub_link_path)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+test "symlink loop detection" {
+    try std.testing.expect(symlinkLoops("/a/b/c", "d/e/f", "/a"));
+    try std.testing.expect(symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d"));
+    try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/o"));
+    try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d/o"));
+}
+
 fn utf8_char_len(first_byte: u8) usize {
     var leading_ones: u8 = 0;
     const HIGH_BYTE: u8 = 0x80;
@@ -515,7 +635,6 @@ fn utf8_char_len(first_byte: u8) usize {
     }
     switch (leading_ones) {
         0 => return 1,
-        1 => return 1,
         else => return @as(usize, leading_ones),
     }
 }
