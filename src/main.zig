@@ -444,10 +444,8 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
     var last_matched_line: ?[]const u8 = null;
     var current_pos: usize = 0;
     var match: c.rure_match = undefined;
-    var match_iter = c.rure_iter_new(ctx.regex);
-    defer c.rure_iter_free(match_iter);
 
-    while (c.rure_iter_next(match_iter, @ptrCast(text), text.len, &match)) {
+    while (c.rure_find(ctx.regex, @ptrCast(text), text.len, current_pos, &match)) {
         // find current line
         var current_line: []const u8 = undefined;
         while (line_iter.peek()) |line| {
