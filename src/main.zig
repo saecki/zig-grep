@@ -500,7 +500,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             // path
             if (!opts.heading) {
                 if (opts.color) {
-                    try ctx.stdout.print("\x1b[34m", .{});
+                    try ctx.stdout.print("\x1b[35m", .{});
                 }
                 try ctx.stdout.print("{s}", .{path});
                 if (opts.color) {
@@ -529,7 +529,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         // print the match
         const match_text = text[match.start..match.end];
         if (opts.color) {
-            try ctx.stdout.print("\x1b[31m", .{});
+            try ctx.stdout.print("\x1b[0m\x1b[1m\x1b[31m", .{});
         }
         try ctx.stdout.print("{s}", .{match_text});
         if (opts.color) {
