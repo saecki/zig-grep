@@ -554,7 +554,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     var i = ctx.line_buf.items.len;
                     while (i > 0) {
                         i -= 1;
-                        const cline_num = line_num - ctx.line_buf.items.len + i;
+                        const cline_num = line_num - i - 1;
                         const cline = ctx.line_buf.items[i];
 
                         // line prefix
