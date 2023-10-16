@@ -523,8 +523,10 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             if (!line_has_match) {
                 const unprinted_lines = line_num - last_printed_line - 1;
                 // non-contigous lines separator
-                if (file_has_match and unprinted_lines > opts.before_context) {
-                    try ctx.stdout.writeAll("--\n");
+                if (opts.before_context > 0 or opts.after_context > 0) {
+                    if (file_has_match and unprinted_lines > opts.before_context) {
+                        try ctx.stdout.writeAll("--\n");
+                    }
                 }
 
                 // before context lines
