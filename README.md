@@ -9,6 +9,9 @@
 - The executable should now be at `zig-out/bin/zig-grep`
 
 ## Notes
+- build system
+    - same language for build-system
+    - build.zig is generated
 - manual memory management
     - allocators have to be manually passed
     - deallocate by `defer`ing `deinit` procedures
@@ -22,3 +25,7 @@
     - error union explicit or implict
     - try: return on error
     - catch: handle error
+- slices
+    - pointer and length by default: []u8
+    - sentinel terminated, for example null terminated: [*0]u8
+    - exclusive ranges for slicing: my_slice[0..2]
