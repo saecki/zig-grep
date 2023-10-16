@@ -10,7 +10,7 @@ const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
 const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
 
-const TEXT_BUF_SIZE = 64 * 1024;
+const TEXT_BUF_SIZE = 1 << 19;
 
 const Context = struct {
     stdout: BufferedStdout,
