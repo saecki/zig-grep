@@ -482,9 +482,9 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 var cline_end = chunk_buf.pos;
                 for (0..opts.before_context) |_| {
                     var cline_start: u32 = 0;
-                    if (cline_end > 2) {
-                        if (indexOfScalarPosRev(u8, text, cline_end - 2, '\n')) |pos| {
-                            cline_start = @intCast(pos + 1);
+                    if (cline_end > 1) {
+                        if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
+                            cline_start = @intCast(pos);
                         }
                     }
 
@@ -536,9 +536,9 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     var cline_end = chunk_buf.pos;
                     for (0..before_context_lines) |_| {
                         var cline_start: u32 = 0;
-                        if (cline_end > 2) {
-                            if (indexOfScalarPosRev(u8, text, cline_end - 2, '\n')) |pos| {
-                                cline_start = @intCast(pos + 1);
+                        if (cline_end > 1) {
+                            if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
+                                cline_start = @intCast(pos);
                             }
                         }
 
@@ -781,8 +781,9 @@ test "utf-8 char len" {
 
 fn indexOfScalarPosRev(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     var i: usize = start_index;
-    while (i != 0) : (i -= 1) {
-        if (slice[i] == value) return i;
+    while (i > 0) {
+        i -= 1;
+        if (slice[i] == value) return i + 1;
     }
     return null;
 }
