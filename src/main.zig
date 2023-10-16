@@ -10,18 +10,21 @@ const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
 const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
 
+const TEXT_BUF_SIZE = 64 * 1024;
+
 const Context = struct {
     stdout: BufferedStdout,
     allocator: Allocator,
     regex: *c.rure,
     dir_stack: *ArrayList(StackEntry),
     name_buf: *ArrayList(u8),
-    text_buf: *ArrayList(u8),
+    text_buf: []u8,
+    line_buf: *ArrayList([]const u8),
 };
 
 const UserOptions = struct {
-    before_context: usize = 0,
-    after_context: usize = 0,
+    before_context: u32 = 0,
+    after_context: u32 = 0,
     color: bool = false,
     heading: bool = true,
     ignore_case: bool = false,
@@ -224,9 +227,12 @@ fn run(stdout: BufferedStdout) !void {
     var name_buf = ArrayList(u8).init(allocator);
     defer name_buf.deinit();
 
-    // reuse text buffers
-    var text_buf = ArrayList(u8).init(allocator);
-    defer text_buf.deinit();
+    // reuse text buffer
+    var text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
+    defer allocator.free(text_buf);
+    var line_buf = ArrayList([]const u8).init(allocator);
+    defer line_buf.deinit();
+    try line_buf.ensureTotalCapacity(opts.before_context);
 
     var ctx = Context{
         .stdout = stdout,
@@ -234,7 +240,8 @@ fn run(stdout: BufferedStdout) !void {
         .regex = regex,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
-        .text_buf = &text_buf,
+        .text_buf = text_buf,
+        .line_buf = &line_buf,
     };
 
     if (input_paths.items.len == 0) {
@@ -417,18 +424,35 @@ fn searchLink(
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
         .text_buf = ctx.text_buf,
+        .line_buf = ctx.line_buf,
     };
 
     try searchPath(&new_ctx, opts, link_path, abs_link_path);
 }
 
-fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
-    // TODO: fixed size text buffer, read files incrementally
-    const stat = try file.stat();
-    try ctx.text_buf.resize(stat.size);
+const ChunkBuffer = struct {
+    reader: File.Reader,
+    items: []u8,
+    pos: usize,
+    end: usize,
+    is_last_chunk: bool,
+};
 
-    const len = try file.readAll(ctx.text_buf.items);
-    const text = ctx.text_buf.items[0..len];
+fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
+    var chunk_buf = ChunkBuffer{
+        .reader = file.reader(),
+        .items = ctx.text_buf,
+        .pos = 0,
+        .end = 0,
+        .is_last_chunk = false,
+    };
+
+    var text = try refillLineBuffer(&chunk_buf, 0);
+
+    var file_has_match = false;
+    var line_num: u32 = 1;
+    var last_printed_line: u32 = 0;
+    var after_context_lines: u32 = 0;
 
     // detect binary files
     const contains_null_byte = std.mem.containsAtLeast(u8, text, 1, &[_]u8{0x00});
@@ -436,126 +460,207 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         return;
     }
 
-    // TODO: iterate over lines filling line buffer, while searching for pattern
-
-    var file_has_match = false;
-    var line_num: u32 = 1;
-    var line_iter = std.mem.splitScalar(u8, text, '\n');
-    var last_matched_line: ?[]const u8 = null;
-    var current_pos: usize = 0;
-    var match: c.rure_match = undefined;
-
-    while (c.rure_find(ctx.regex, @ptrCast(text), text.len, current_pos, &match)) {
-        // find current line
-        var current_line: []const u8 = undefined;
-        while (line_iter.peek()) |line| {
-            const line_start = textIndex(text, line);
-            const line_end = line_start + line.len;
-            if (line_start <= match.start and line_end >= match.start) {
-                current_line = line;
+    while (true) {
+        var line: []const u8 = undefined;
+        var end_pos: usize = undefined;
+        if (std.mem.indexOfScalarPos(u8, text, chunk_buf.pos, '\n')) |line_term_pos| {
+            line = text[chunk_buf.pos..line_term_pos];
+            end_pos = line_term_pos + 1;
+        } else if (chunk_buf.is_last_chunk) {
+            if (chunk_buf.pos < text.len) {
+                // last line is missing a line terminator
+                line = text[chunk_buf.pos..];
+                end_pos = text.len;
+            } else {
+                // we're at the end of the file
                 break;
             }
+        } else {
+            var new_start_pos = chunk_buf.pos;
+            if (opts.before_context > 0) {
+                // include lines that may have to be printed as `before_context`
+                var cline_end = chunk_buf.pos;
+                for (0..opts.before_context) |_| {
+                    var cline_start: u32 = 0;
+                    if (cline_end > 2) {
+                        if (indexOfScalarPosRev(u8, text, cline_end - 2, '\n')) |pos| {
+                            cline_start = @intCast(pos + 1);
+                        }
+                    }
 
-            _ = line_iter.next();
-            line_num += 1;
+                    new_start_pos = cline_start;
+
+                    if (cline_start == 0) {
+                        break;
+                    }
+                    cline_end = cline_start;
+                }
+            }
+
+            text = try refillLineBuffer(&chunk_buf, new_start_pos);
+            continue;
         }
 
-        // print remainder of last matched line and set position to the current one
-        var first_match_in_line = true;
-        if (last_matched_line) |last| {
-            first_match_in_line = last.ptr != current_line.ptr;
+        var line_pos: u32 = 0;
+        var line_has_match = false;
+        while (line_pos < line.len) {
+            var match: c.rure_match = undefined;
+            const found = c.rure_find(ctx.regex, @ptrCast(line), line.len, line_pos, &match);
+            if (!found) break;
 
-            if (first_match_in_line) {
-                const last_line_end = textIndex(text, last) + last.len;
-                if (current_pos < last_line_end) {
-                    const remainder = text[current_pos..last_line_end];
-                    try ctx.stdout.print("{s}\n", .{remainder});
-                } else {
-                    try ctx.stdout.print("\n", .{});
+            // print heading
+            if (!file_has_match and opts.heading) {
+                if (opts.color) {
+                    try ctx.stdout.writeAll("\x1b[35m");
+                }
+                try ctx.stdout.writeAll(path);
+                if (opts.color) {
+                    try ctx.stdout.writeAll("\x1b[0m");
+                }
+                try ctx.stdout.writeByte('\n');
+            }
+
+            if (!line_has_match) {
+                const unprinted_lines = line_num - last_printed_line - 1;
+                // non-contigous lines separator
+                if (file_has_match and unprinted_lines > opts.before_context) {
+                    try ctx.stdout.writeAll("--\n");
                 }
 
-                current_pos = textIndex(text, current_line);
+                // before context lines
+                const before_context_lines = @min(opts.before_context, unprinted_lines);
+                if (before_context_lines > 0) {
+                    std.debug.assert(chunk_buf.pos > 1);
+
+                    // collect lines
+                    var cline_end = chunk_buf.pos;
+                    for (0..before_context_lines) |_| {
+                        var cline_start: u32 = 0;
+                        if (cline_end > 2) {
+                            if (indexOfScalarPosRev(u8, text, cline_end - 2, '\n')) |pos| {
+                                cline_start = @intCast(pos + 1);
+                            }
+                        }
+
+                        try ctx.line_buf.append(text[cline_start..cline_end]);
+
+                        if (cline_start == 0) {
+                            break;
+                        }
+                        cline_end = cline_start;
+                    }
+
+                    // print lines
+                    var i = ctx.line_buf.items.len;
+                    while (i > 0) {
+                        i -= 1;
+                        const cline_num = line_num - ctx.line_buf.items.len + i;
+                        const cline = ctx.line_buf.items[i];
+
+                        // line prefix
+                        if (!opts.heading) {
+                            try printPath(ctx, opts, path);
+                            try ctx.stdout.writeByte('-');
+                        }
+                        try printLineNum(ctx, opts, cline_num);
+                        try ctx.stdout.writeByte('-');
+
+                        try ctx.stdout.writeAll(cline);
+                    }
+
+                    ctx.line_buf.clearRetainingCapacity();
+                }
+
+                // line prefix
+                if (!opts.heading) {
+                    try printPath(ctx, opts, path);
+                    try ctx.stdout.writeByte(':');
+                }
+                try printLineNum(ctx, opts, line_num);
+                try ctx.stdout.writeByte(':');
+
+                line_has_match = true;
+                file_has_match = true;
             }
-        } else {
-            current_pos = textIndex(text, current_line);
+
+            // print preceding text
+            const preceding_text = line[line_pos..match.start];
+            try ctx.stdout.writeAll(preceding_text);
+
+            // print the match
+            const match_text = line[match.start..match.end];
+            if (opts.color) {
+                try ctx.stdout.writeAll("\x1b[0m\x1b[1m\x1b[31m");
+            }
+            try ctx.stdout.writeAll(match_text);
+            if (opts.color) {
+                try ctx.stdout.writeAll("\x1b[0m");
+            }
+
+            line_pos = @intCast(match.end);
         }
 
-        // print heading
-        if (!file_has_match and opts.heading) {
-            if (opts.color) {
-                try ctx.stdout.print("\x1b[35m", .{});
-            }
-            try ctx.stdout.print("{s}", .{path});
-            if (opts.color) {
-                try ctx.stdout.print("\x1b[0m", .{});
-            }
-            try ctx.stdout.print("\n", .{});
-
-            file_has_match = true;
-        }
-
-        if (first_match_in_line) {
-            // path
+        if (line_has_match) {
+            // print remainder of line
+            try ctx.stdout.print("{s}\n", .{line[line_pos..]});
+            last_printed_line = line_num;
+            after_context_lines = opts.after_context;
+        } else if (after_context_lines > 0) {
+            // print after context
             if (!opts.heading) {
-                if (opts.color) {
-                    try ctx.stdout.print("\x1b[35m", .{});
-                }
-                try ctx.stdout.print("{s}", .{path});
-                if (opts.color) {
-                    try ctx.stdout.print("\x1b[0m", .{});
-                }
-                try ctx.stdout.print(":", .{});
+                try printPath(ctx, opts, path);
+                try ctx.stdout.writeByte('-');
             }
+            try printLineNum(ctx, opts, line_num);
+            try ctx.stdout.writeByte('-');
 
-            // line number
-            if (opts.color) {
-                try ctx.stdout.print("\x1b[32m", .{});
-            }
-            try ctx.stdout.print("{}", .{line_num});
-            if (opts.color) {
-                try ctx.stdout.print("\x1b[0m", .{});
-            }
-            try ctx.stdout.print(":", .{});
+            try ctx.stdout.print("{s}\n", .{line});
+
+            last_printed_line = line_num;
+            after_context_lines -= 1;
         }
 
-        // print preceding text
-        if (current_pos != match.start) {
-            const prev_text = text[current_pos..match.start];
-            try ctx.stdout.print("{s}", .{prev_text});
-        }
-
-        // print the match
-        const match_text = text[match.start..match.end];
-        if (opts.color) {
-            try ctx.stdout.print("\x1b[0m\x1b[1m\x1b[31m", .{});
-        }
-        try ctx.stdout.print("{s}", .{match_text});
-        if (opts.color) {
-            try ctx.stdout.print("\x1b[0m", .{});
-        }
-
-        last_matched_line = current_line;
-        current_pos = match.end;
-    }
-
-    // print remainder of last matched line
-    if (last_matched_line) |last| {
-        const last_line_end = textIndex(text, last) + last.len;
-        if (current_pos < last_line_end) {
-            const remainder = text[current_pos..last_line_end];
-            try ctx.stdout.print("{s}\n", .{remainder});
-        } else {
-            try ctx.stdout.print("\n", .{});
-        }
+        chunk_buf.pos = end_pos;
+        line_num += 1;
     }
 
     if (file_has_match and opts.heading) {
-        try ctx.stdout.print("\n", .{});
+        try ctx.stdout.writeByte('\n');
     }
 }
 
-fn textIndex(text: []const u8, slice_of_text: []const u8) usize {
-    return @intFromPtr(slice_of_text.ptr) - @intFromPtr(text.ptr);
+fn refillLineBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]const u8 {
+    std.debug.assert(new_start_pos <= chunk_buf.pos);
+
+    const num_reused_bytes = chunk_buf.end - new_start_pos;
+    std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.end]);
+    chunk_buf.pos = chunk_buf.pos - new_start_pos;
+
+    const len = try chunk_buf.reader.readAll(chunk_buf.items[num_reused_bytes..]);
+    chunk_buf.end = num_reused_bytes + len;
+    chunk_buf.is_last_chunk = chunk_buf.end < chunk_buf.items.len;
+
+    return chunk_buf.items[0..chunk_buf.end];
+}
+
+inline fn printPath(ctx: *Context, opts: *const UserOptions, path: []const u8) !void {
+    if (opts.color) {
+        try ctx.stdout.writeAll("\x1b[35m");
+    }
+    try ctx.stdout.writeAll(path);
+    if (opts.color) {
+        try ctx.stdout.writeAll("\x1b[0m");
+    }
+}
+
+inline fn printLineNum(ctx: *Context, opts: *const UserOptions, line_num: usize) !void {
+    if (opts.color) {
+        try ctx.stdout.writeAll("\x1b[32m");
+    }
+    try ctx.stdout.print("{}", .{line_num});
+    if (opts.color) {
+        try ctx.stdout.writeAll("\x1b[0m");
+    }
 }
 
 fn printHelp(stdout: BufferedStdout) !void {
@@ -589,7 +694,7 @@ fn expectNumAfterShortArg(
     args: *std.process.ArgIterator,
     short_args: []const u8,
     index: usize,
-) !usize {
+) !u32 {
     if (index != short_args.len - 1) {
         try stdout.print("Missing value after \"{s}\"", .{short_args[index .. index + 1]});
         return error.Input;
@@ -602,13 +707,13 @@ fn expectNum(
     stdout: BufferedStdout,
     args: *std.process.ArgIterator,
     name: []const u8,
-) !usize {
+) !u32 {
     const str = args.next() orelse {
         try stdout.print("Missing value after \"{s}\"\n", .{name});
         return error.Input;
     };
 
-    const num = std.fmt.parseInt(usize, str, 10) catch {
+    const num = std.fmt.parseInt(u32, str, 10) catch {
         try stdout.print("Expected number for \"{s}\", found \"{s}\"\n", .{ name, str });
         return error.Input;
     };
@@ -672,4 +777,12 @@ test "utf-8 char len" {
     try check("ö", 2);
     try check("\u{2757}", 3);
     try check("\u{01FAE0}", 4);
+}
+
+fn indexOfScalarPosRev(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+    var i: usize = start_index;
+    while (i != 0) : (i -= 1) {
+        if (slice[i] == value) return i;
+    }
+    return null;
 }
