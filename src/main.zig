@@ -31,6 +31,7 @@ const UserOptions = struct {
     follow_links: bool = false,
     hidden: bool = false,
     debug: bool = false,
+    no_flush: bool = false,
 };
 
 const StackEntry = struct {
@@ -147,6 +148,8 @@ fn run(stdout: BufferedStdout) !void {
                 opts.ignore_case = true;
             } else if (std.mem.eql(u8, long_arg, "debug")) {
                 opts.debug = true;
+            } else if (std.mem.eql(u8, long_arg, "no-flush")) {
+                opts.no_flush = true;
             } else if (std.mem.eql(u8, long_arg, "after-context")) {
                 opts.after_context = try expectNum(stdout, &args, long_arg);
             } else if (std.mem.eql(u8, long_arg, "before-context")) {
@@ -629,8 +632,13 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         line_num += 1;
     }
 
-    if (file_has_match and opts.heading) {
-        try ctx.stdout.writeByte('\n');
+    if (file_has_match) {
+        if (opts.heading) {
+            try ctx.stdout.writeByte('\n');
+        }
+        if (!opts.no_flush) {
+            try ctx.stdout.context.flush();
+        }
     }
 }
 
@@ -686,6 +694,7 @@ fn printHelp(stdout: BufferedStdout) !void {
         \\ -h,--hidden                  search hidden files and folders
         \\    --help                    print this message
         \\ -i,--ignore-case             search case insensitive
+        \\    --no-flush                don't flush output after every file
         \\    --no-heading              prints a single line including the filename
         \\                              for each match, instead of grouping matches
         \\                              by file
