@@ -782,7 +782,7 @@ fn utf8_char_len(first_byte: u8) usize {
 fn check(string: []const u8, len: usize) !void {
     const first_byte = string[0];
     const char_len = utf8_char_len(first_byte);
-    std.debug.print("{s}, first_byte: {b}, char_len {}\n", .{ string, first_byte, char_len });
+    // std.debug.print("{s}, first_byte: {b}, char_len {}\n", .{ string, first_byte, char_len });
     try std.testing.expectEqual(char_len, len);
 }
 
