@@ -26,6 +26,7 @@ jobs:
 
     # Build the program
     - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
+    - run: zig build test
     - run: zig build -Doptimize=ReleaseFast
 
     # Make space for our data
