@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+  - cron:  '0 0 * * 1' # weekly
+
+env:
+  UNZIP_DISABLE_ZIPBOMB_DETECTION: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    # Install tools
+    - run: sudo apt update
+    - run: sudo apt install -y python3 ripgrep
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: goto-bus-stop/setup-zig@v2
+
+    # Build the program
+    - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
+    - run: zig build -Doptimize=ReleaseFast
+
+    # Make space for our data
+    - run: sudo rm -rf /usr/share/dotnet
+    - run: sudo rm -rf /usr/local/lib/android
+    - run: sudo rm -rf /opt/ghc
+    - run: sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+    # Download or restore the cached test data
+    - id: cache-test-data
+      uses: actions/cache@v3
+      with:
+        path: test/data
+        key: test-data
+    - run: |
+        if [ ! -f test/data ]; then
+          mkdir test/data
+          TMP_DIR=$(mktemp -d)
+          wget "${{ secrets.DOWNLOAD_LINK }}"  --output-document="${TMP_DIR}/data.zip"
+          unzip "${TMP_DIR}/data.zip" -d test/data
+        fi
+
+    # Run the tests
+    - run: python test/test.py --ripgrep -v --fail-fast -d test/data "./zig-out/bin/zig-grep"
