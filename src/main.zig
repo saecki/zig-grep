@@ -32,6 +32,7 @@ const UserOptions = struct {
     hidden: bool = false,
     debug: bool = false,
     no_flush: bool = false,
+    unicode: bool = true,
 };
 
 const StackEntry = struct {
@@ -150,6 +151,8 @@ fn run(stdout: BufferedStdout) !void {
                 opts.debug = true;
             } else if (std.mem.eql(u8, long_arg, "no-flush")) {
                 opts.no_flush = true;
+            } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
+                opts.unicode = false;
             } else if (std.mem.eql(u8, long_arg, "after-context")) {
                 opts.after_context = try expectNum(stdout, &args, long_arg);
             } else if (std.mem.eql(u8, long_arg, "before-context")) {
@@ -213,10 +216,9 @@ fn run(stdout: BufferedStdout) !void {
     };
 
     // compile regex
-    var regex_flags: u32 = c.RURE_DEFAULT_FLAGS;
-    if (opts.ignore_case) {
-        regex_flags |= c.RURE_FLAG_CASEI;
-    }
+    var regex_flags: u32 = 0;
+    if (opts.ignore_case) regex_flags |= c.RURE_FLAG_CASEI;
+    if (opts.unicode) regex_flags |= c.RURE_FLAG_UNICODE;
     var regex_error = c.rure_error_new();
     defer c.rure_error_free(regex_error);
     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
@@ -802,6 +804,7 @@ fn printHelp(stdout: BufferedStdout) !void {
         \\    --no-heading              prints a single line including the filename
         \\                              for each match, instead of grouping matches
         \\                              by file
+        \\    --no-unicode              disable unicdoe support
         \\
     ;
     try stdout.print(HELP_MESSAGE, .{});
