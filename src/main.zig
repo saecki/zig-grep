@@ -436,85 +436,103 @@ fn searchLink(
     try searchPath(&new_ctx, opts, link_path, abs_link_path);
 }
 
-const ChunkBuffer = struct {
-    reader: File.Reader,
-    items: []u8,
-    pos: usize,
-    end: usize,
-    is_last_chunk: bool,
-};
-
 fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
     var chunk_buf = ChunkBuffer{
         .reader = file.reader(),
         .items = ctx.text_buf,
         .pos = 0,
-        .end = 0,
+        .data_end = 0,
         .is_last_chunk = false,
     };
 
-    var text = try refillLineBuffer(&chunk_buf, 0);
-
+    var text = try refillChunkBuffer(&chunk_buf, 0);
     var file_has_match = false;
     var line_num: u32 = 1;
-    var last_printed_line: u32 = 0;
-    var after_context_lines: u32 = 0;
+    var last_matched_line_num: ?u32 = null;
+    var last_printed_line_num: ?u32 = null;
 
     // detect binary files
-    const contains_null_byte = std.mem.containsAtLeast(u8, text, 1, &[_]u8{0x00});
-    if (contains_null_byte) {
+    const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
+    if (null_byte) |_| {
         return;
     }
 
     while (true) {
-        var line: []const u8 = undefined;
-        var end_pos: usize = undefined;
-        if (std.mem.indexOfScalarPos(u8, text, chunk_buf.pos, '\n')) |line_term_pos| {
-            line = text[chunk_buf.pos..line_term_pos];
-            end_pos = line_term_pos + 1;
-        } else if (chunk_buf.is_last_chunk) {
-            if (chunk_buf.pos < text.len) {
-                // last line is missing a line terminator
-                line = text[chunk_buf.pos..];
-                end_pos = text.len;
-            } else {
-                // we're at the end of the file
+        var chunk_has_match = false;
+        var line_iter = std.mem.splitScalar(u8, text[chunk_buf.pos..], '\n');
+        var last_matched_line: ?[]const u8 = null;
+        var printed_remainder = true;
+
+        while (chunk_buf.pos < text.len) {
+            var match: c.rure_match = undefined;
+            const found = c.rure_find(ctx.regex, @ptrCast(text), text.len, chunk_buf.pos, &match);
+            if (!found) {
                 break;
             }
-        } else {
-            var new_start_pos = chunk_buf.pos;
-            if (opts.before_context > 0) {
-                // include lines that may have to be printed as `before_context`
-                var cline_end = chunk_buf.pos;
-                for (0..opts.before_context) |_| {
-                    var cline_start: u32 = 0;
-                    if (cline_end > 1) {
-                        if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
-                            cline_start = @intCast(pos);
+
+            // find current line (the containing this match)
+            var current_line: []const u8 = undefined;
+            var current_line_start: usize = undefined;
+            var continue_searching = false;
+            while (line_iter.peek()) |line| {
+                const line_start = textIndex(text, line);
+                const line_end = line_start + line.len;
+                if (line_start <= match.start and match.start <= line_end) {
+                    // Some regex pattern may match newlines, which shouldn't be supported by default.
+                    // If the match spans multiple lines, check if the first line would be enough to match.
+                    if (match.end > line_end) {
+                        const search_start = match.start;
+                        const search_end = @min(line_end + 1, text.len);
+                        const single_line_found = c.rure_find(ctx.regex, @ptrCast(text), search_end, search_start, &match);
+
+                        if (!single_line_found) {
+                            chunk_buf.pos = search_end;
+                            continue_searching = true;
+                            break;
                         }
                     }
 
-                    new_start_pos = cline_start;
-
-                    if (cline_start == 0) {
-                        break;
-                    }
-                    cline_end = cline_start;
+                    current_line = line;
+                    current_line_start = line_start;
+                    break;
                 }
+
+                if (!printed_remainder) {
+                    // remainder of last line
+                    if (last_matched_line) |lml| {
+                        const cline_start = textIndex(text, lml);
+                        const cline_end = cline_start + lml.len;
+                        const remainder = text[chunk_buf.pos..cline_end];
+                        try ctx.stdout.print("{s}\n", .{remainder});
+                        last_printed_line_num = last_matched_line_num;
+                        printed_remainder = true;
+                    }
+                }
+
+                // after context lines
+                if (last_matched_line_num) |lml_num| {
+                    const is_after_context_line = line_num <= lml_num + opts.after_context;
+                    const is_unprinted = last_printed_line_num orelse lml_num < line_num;
+                    if (is_after_context_line and is_unprinted) {
+                        if (!opts.heading) {
+                            try printPath(ctx, opts, path);
+                            try ctx.stdout.writeByte('-');
+                        }
+                        try printLineNum(ctx, opts, line_num);
+                        try ctx.stdout.print("-{s}\n", .{line});
+
+                        last_printed_line_num = line_num;
+                    }
+                }
+
+                _ = line_iter.next();
+                line_num += 1;
+            }
+            if (continue_searching) {
+                continue;
             }
 
-            text = try refillLineBuffer(&chunk_buf, new_start_pos);
-            continue;
-        }
-
-        var line_pos: u32 = 0;
-        var line_has_match = false;
-        while (line_pos < line.len) {
-            var match: c.rure_match = undefined;
-            const found = c.rure_find(ctx.regex, @ptrCast(line), line.len, line_pos, &match);
-            if (!found) break;
-
-            // print heading
+            // heading
             if (!file_has_match and opts.heading) {
                 if (opts.color) {
                     try ctx.stdout.writeAll("\x1b[35m");
@@ -526,22 +544,22 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 try ctx.stdout.writeByte('\n');
             }
 
-            if (!line_has_match) {
-                const unprinted_lines = line_num - last_printed_line - 1;
+            const first_match_in_line = line_num != last_matched_line_num;
+            if (first_match_in_line) {
                 // non-contigous lines separator
+                const lpl_num = last_printed_line_num orelse 0;
+                const unprinted_before_lines = line_num - lpl_num - 1;
                 if (opts.before_context > 0 or opts.after_context > 0) {
-                    if (file_has_match and unprinted_lines > opts.before_context) {
+                    if (file_has_match and unprinted_before_lines > opts.before_context) {
                         try ctx.stdout.writeAll("--\n");
                     }
                 }
 
                 // before context lines
-                const before_context_lines = @min(opts.before_context, unprinted_lines);
+                const before_context_lines = @min(opts.before_context, unprinted_before_lines);
                 if (before_context_lines > 0) {
-                    std.debug.assert(chunk_buf.pos > 1);
-
                     // collect lines
-                    var cline_end = chunk_buf.pos;
+                    var cline_end = current_line_start;
                     for (0..before_context_lines) |_| {
                         var cline_start: u32 = 0;
                         if (cline_end > 1) {
@@ -549,7 +567,6 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                                 cline_start = @intCast(pos);
                             }
                         }
-
                         try ctx.line_buf.append(text[cline_start..cline_end]);
 
                         if (cline_start == 0) {
@@ -565,15 +582,12 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                         const cline_num = line_num - i - 1;
                         const cline = ctx.line_buf.items[i];
 
-                        // line prefix
                         if (!opts.heading) {
                             try printPath(ctx, opts, path);
                             try ctx.stdout.writeByte('-');
                         }
                         try printLineNum(ctx, opts, cline_num);
-                        try ctx.stdout.writeByte('-');
-
-                        try ctx.stdout.writeAll(cline);
+                        try ctx.stdout.print("-{s}", .{cline});
                     }
 
                     ctx.line_buf.clearRetainingCapacity();
@@ -587,16 +601,17 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 try printLineNum(ctx, opts, line_num);
                 try ctx.stdout.writeByte(':');
 
-                line_has_match = true;
+                chunk_has_match = true;
                 file_has_match = true;
             }
 
-            // print preceding text
-            const preceding_text = line[line_pos..match.start];
+            // preceding text
+            const preceding_text_start = @max(current_line_start, chunk_buf.pos);
+            const preceding_text = text[preceding_text_start..match.start];
             try ctx.stdout.writeAll(preceding_text);
 
-            // print the match
-            const match_text = line[match.start..match.end];
+            // the match
+            const match_text = text[match.start..match.end];
             if (opts.color) {
                 try ctx.stdout.writeAll("\x1b[0m\x1b[1m\x1b[31m");
             }
@@ -605,31 +620,74 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 try ctx.stdout.writeAll("\x1b[0m");
             }
 
-            line_pos = @intCast(match.end);
+            chunk_buf.pos = match.end;
+            last_matched_line = current_line;
+            last_matched_line_num = line_num;
+            printed_remainder = false;
         }
 
-        if (line_has_match) {
-            // print remainder of line
-            try ctx.stdout.print("{s}\n", .{line[line_pos..]});
-            last_printed_line = line_num;
-            after_context_lines = opts.after_context;
-        } else if (after_context_lines > 0) {
-            // print after context
-            if (!opts.heading) {
-                try printPath(ctx, opts, path);
-                try ctx.stdout.writeByte('-');
+        if (last_matched_line) |l| {
+            // remainder of last line
+            const line_start = textIndex(text, l);
+            const line_end = line_start + l.len;
+            const remainder = text[chunk_buf.pos..line_end];
+            try ctx.stdout.print("{s}\n", .{remainder});
+            printed_remainder = true;
+
+            // after context lines
+            for (0..opts.after_context) |_| {
+                const cline = line_iter.next() orelse break;
+                const cline_start = textIndex(text, cline);
+                var cline_end = cline_start + cline.len;
+                chunk_buf.pos = @min(cline_end + 1, text.len);
+                line_num += 1;
+
+                if (!opts.heading) {
+                    try printPath(ctx, opts, path);
+                    try ctx.stdout.writeByte('-');
+                }
+                try printLineNum(ctx, opts, line_num);
+                try ctx.stdout.print("-{s}\n", .{cline});
+
+                last_printed_line_num = line_num;
             }
-            try printLineNum(ctx, opts, line_num);
-            try ctx.stdout.writeByte('-');
-
-            try ctx.stdout.print("{s}\n", .{line});
-
-            last_printed_line = line_num;
-            after_context_lines -= 1;
         }
 
-        chunk_buf.pos = end_pos;
-        line_num += 1;
+        if (chunk_buf.is_last_chunk) {
+            break;
+        }
+
+        // count remaining lines
+        while (line_iter.next()) |l| {
+            const line_start = textIndex(text, l);
+            var line_end = line_start + l.len;
+            chunk_buf.pos = @min(line_end + 1, text.len);
+            line_num += 1;
+        }
+
+        // refill the buffer
+        var new_start_pos = if (chunk_has_match) chunk_buf.pos else text.len;
+        if (opts.before_context > 0) {
+            // include lines that may have to be printed as `before_context`
+            var cline_end = chunk_buf.pos;
+            for (0..opts.before_context) |_| {
+                var cline_start: u32 = 0;
+                if (cline_end > 1) {
+                    if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
+                        cline_start = @intCast(pos);
+                    }
+                }
+
+                new_start_pos = cline_start;
+
+                if (cline_start == 0) {
+                    break;
+                }
+                cline_end = cline_start;
+            }
+        }
+
+        text = try refillChunkBuffer(&chunk_buf, new_start_pos);
     }
 
     if (file_has_match) {
@@ -642,18 +700,64 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
     }
 }
 
-fn refillLineBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]const u8 {
+const ChunkBuffer = struct {
+    reader: File.Reader,
+    items: []u8,
+    pos: usize,
+    /// The end of data inside the chunk buffer, not the end of the text slice
+    /// returned by refillChunkBuffer().
+    data_end: usize,
+    is_last_chunk: bool,
+};
+
+/// Moves the data after `new_start_pos` to the start of the internal buffer,
+/// fills the remaining part of the buffer with data from `reader` and updates
+/// `ChunkBuffer.pos`, `ChunkBuffer.data_end` and `ChunkBuffer.is_last_chunk`.
+/// Then returns a slice of text from the start of the internal buffer until
+/// the last line ending. Newlines are included if they are present.
+inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]const u8 {
     std.debug.assert(new_start_pos <= chunk_buf.pos);
 
-    const num_reused_bytes = chunk_buf.end - new_start_pos;
-    std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.end]);
+    const num_reused_bytes = chunk_buf.data_end - new_start_pos;
+    std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.data_end]);
     chunk_buf.pos = chunk_buf.pos - new_start_pos;
 
     const len = try chunk_buf.reader.readAll(chunk_buf.items[num_reused_bytes..]);
-    chunk_buf.end = num_reused_bytes + len;
-    chunk_buf.is_last_chunk = chunk_buf.end < chunk_buf.items.len;
+    chunk_buf.data_end = num_reused_bytes + len;
+    chunk_buf.is_last_chunk = chunk_buf.data_end < chunk_buf.items.len;
 
-    return chunk_buf.items[0..chunk_buf.end];
+    var text_end = chunk_buf.data_end;
+    if (!chunk_buf.is_last_chunk) {
+        const last_line_end = indexOfScalarPosRev(u8, chunk_buf.items, chunk_buf.data_end, '\n');
+        if (last_line_end) |l| {
+            text_end = l;
+        }
+    }
+    return chunk_buf.items[0..text_end];
+}
+
+inline fn textIndex(text: []const u8, slice_of_text: []const u8) usize {
+    return @intFromPtr(slice_of_text.ptr) - @intFromPtr(text.ptr);
+}
+
+/// Searches backwards from the `start_index`, which is exclusive to the start of
+/// the `slice` for the given scalar `value`. Returns the exclusive end position
+/// of the first `value`.
+///
+/// See the test below for an example.
+inline fn indexOfScalarPosRev(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
+    var i: usize = start_index;
+    while (i > 0) {
+        i -= 1;
+        if (slice[i] == value) return i + 1;
+    }
+    return null;
+}
+
+test "exclusive index of scalar pos rev" {
+    const slice = [_]u8{ 'a', 'b', 'c' };
+    const pos = indexOfScalarPosRev(u8, &slice, slice.len, 'c').?;
+    try std.testing.expectEqual(pos, 3);
 }
 
 inline fn printPath(ctx: *Context, opts: *const UserOptions, path: []const u8) !void {
@@ -791,13 +895,4 @@ test "utf-8 char len" {
     try check("ö", 2);
     try check("\u{2757}", 3);
     try check("\u{01FAE0}", 4);
-}
-
-fn indexOfScalarPosRev(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
-    var i: usize = start_index;
-    while (i > 0) {
-        i -= 1;
-        if (slice[i] == value) return i + 1;
-    }
-    return null;
 }
