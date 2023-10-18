@@ -37,3 +37,18 @@
     - missing regex library
 - unclear crash messages, even in debug mode
     - just memory addresses
+
+## Process
+1. Line by line matching
+2. Whole text matching for performance
+    - to avoid allocating iterator for every line
+    - then avoid using iterator anyway
+3. Line by line matching with fixed size buffer
+    - no multiline matches
+    - easier to implement
+    - lines need to be iterated anyway for line numbers
+4. Whole text matching for performance with fixed size buffer
+    - the rust regex `find` functions has extremely high startup
+      overhead on unicode word-character patterns
+    - avoided to some extend by searching the whole text buffer
+      instead of just line by line slices
