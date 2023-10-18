@@ -23,6 +23,8 @@ jobs:
     - run: sudo apt install -y python3 ripgrep
     - uses: dtolnay/rust-toolchain@stable
     - uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.11.0
 
     # Build the program
     - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
