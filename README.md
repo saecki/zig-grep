@@ -12,10 +12,14 @@
 - build system
     - same language for build-system
     - build.zig is generated
+    - good C interoperability
 - manual memory management
     - allocators have to be manually passed
     - deallocate by `defer`ing `deinit` procedures
     - memory leaks are automatically detected in debug mode
+- minimal standard library
+    - no unicode string support, only functions for operating on slices e.g. std.mem
+    - utf-8 string libraries are 3rd party
 - exhaustive switch statements
     - useful for enums
 - generics are just comptime functions operating on types
@@ -29,3 +33,7 @@
     - pointer and length by default: []u8
     - sentinel terminated, for example null terminated: [*0]u8
     - exclusive ranges for slicing: my_slice[0..2]
+- somewhat immature ecosystem
+    - missing regex library
+- unclear crash messages, even in debug mode
+    - just memory addresses
