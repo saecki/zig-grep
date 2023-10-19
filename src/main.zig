@@ -465,7 +465,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         var last_matched_line: ?[]const u8 = null;
         var printed_remainder = true;
 
-        while (chunk_buf.pos < text.len) {
+        search: while (chunk_buf.pos < text.len) {
             var match: c.rure_match = undefined;
             const found = c.rure_find(ctx.regex, @ptrCast(text), text.len, chunk_buf.pos, &match);
             if (!found) {
@@ -475,7 +475,6 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             // find current line (the containing this match)
             var current_line: []const u8 = undefined;
             var current_line_start: usize = undefined;
-            var continue_searching = false;
             while (line_iter.peek()) |line| {
                 const line_start = textIndex(text, line);
                 const line_end = line_start + line.len;
@@ -489,8 +488,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
                         if (!single_line_found) {
                             chunk_buf.pos = search_end;
-                            continue_searching = true;
-                            break;
+                            continue :search;
                         }
                     }
 
@@ -529,9 +527,6 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
                 _ = line_iter.next();
                 line_num += 1;
-            }
-            if (continue_searching) {
-                continue;
             }
 
             // heading
@@ -630,19 +625,28 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
         if (last_matched_line) |l| {
             // remainder of last line
+            std.debug.assert(!printed_remainder);
+
             const line_start = textIndex(text, l);
             const line_end = line_start + l.len;
             const remainder = text[chunk_buf.pos..line_end];
             try ctx.stdout.print("{s}\n", .{remainder});
-            printed_remainder = true;
+
+            chunk_buf.pos = @min(line_end + 1, text.len);
+            last_printed_line_num = line_num;
+            _ = line_iter.next();
+            line_num += 1;
 
             // after context lines
             for (0..opts.after_context) |_| {
                 const cline = line_iter.next() orelse break;
+                // ignore empty last line
+                if (line_iter.peek() == null and cline.len == 0) {
+                    break;
+                }
+
                 const cline_start = textIndex(text, cline);
-                var cline_end = cline_start + cline.len;
-                chunk_buf.pos = @min(cline_end + 1, text.len);
-                line_num += 1;
+                const cline_end = cline_start + cline.len;
 
                 if (!opts.heading) {
                     try printPath(ctx, opts, path);
@@ -651,7 +655,9 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 try printLineNum(ctx, opts, line_num);
                 try ctx.stdout.print("-{s}\n", .{cline});
 
+                chunk_buf.pos = @min(cline_end + 1, text.len);
                 last_printed_line_num = line_num;
+                line_num += 1;
             }
         }
 
@@ -661,8 +667,13 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
         // count remaining lines
         while (line_iter.next()) |l| {
+            // ignore empty last line
+            if (line_iter.peek() == null and l.len == 0) {
+                break;
+            }
+
             const line_start = textIndex(text, l);
-            var line_end = line_start + l.len;
+            const line_end = line_start + l.len;
             chunk_buf.pos = @min(line_end + 1, text.len);
             line_num += 1;
         }
@@ -731,8 +742,8 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
     var text_end = chunk_buf.data_end;
     if (!chunk_buf.is_last_chunk) {
         const last_line_end = indexOfScalarPosRev(u8, chunk_buf.items, chunk_buf.data_end, '\n');
-        if (last_line_end) |l| {
-            text_end = l;
+        if (last_line_end) |end| {
+            text_end = end;
         }
     }
     return chunk_buf.items[0..text_end];
