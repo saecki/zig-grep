@@ -15,8 +15,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: true
+      # with:
+      #   submodules: true
 
     # Install tools
     - run: sudo apt update
@@ -27,7 +27,7 @@ jobs:
         version: 0.11.0
 
     # Build the program
-    - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
+    # - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
     - run: zig build test
     - run: zig build -Doptimize=ReleaseFast
 
