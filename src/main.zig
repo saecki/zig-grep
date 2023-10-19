@@ -623,22 +623,25 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             printed_remainder = false;
         }
 
-        if (last_matched_line) |l| {
+        if (last_matched_line) |lml| {
             // remainder of last line
-            std.debug.assert(!printed_remainder);
+            if (!printed_remainder) {
+                const line_start = textIndex(text, lml);
+                const line_end = line_start + lml.len;
+                const remainder = text[chunk_buf.pos..line_end];
+                try ctx.stdout.print("{s}\n", .{remainder});
 
-            const line_start = textIndex(text, l);
-            const line_end = line_start + l.len;
-            const remainder = text[chunk_buf.pos..line_end];
-            try ctx.stdout.print("{s}\n", .{remainder});
-
-            chunk_buf.pos = @min(line_end + 1, text.len);
-            last_printed_line_num = line_num;
-            _ = line_iter.next();
-            line_num += 1;
+                chunk_buf.pos = @min(line_end + 1, text.len);
+                last_printed_line_num = line_num;
+                _ = line_iter.next();
+                line_num += 1;
+            }
 
             // after context lines
-            for (0..opts.after_context) |_| {
+            const lml_num = last_matched_line_num.?;
+            const unprinted_lines = (lml_num + opts.after_context + 1) -| line_num;
+            const after_context_lines = @min(unprinted_lines, opts.after_context);
+            for (0..after_context_lines) |_| {
                 const cline = line_iter.next() orelse break;
                 // ignore empty last line
                 if (line_iter.peek() == null and cline.len == 0) {
