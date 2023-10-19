@@ -120,117 +120,14 @@ fn run(stdout: BufferedStdout) !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // read arguments
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
-
-    // discard executable
-    _ = args.next();
-
-    var input_pattern: ?[]const u8 = null;
+    var opts = UserOptions{};
     var input_paths = ArrayList([]const u8).init(allocator);
     defer input_paths.deinit();
-
-    var opts = UserOptions{};
-
-    // parse command line arguments
-    while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--")) {
-            const long_arg = arg[2..];
-            if (std.mem.eql(u8, long_arg, "hidden")) {
-                opts.hidden = true;
-            } else if (std.mem.eql(u8, long_arg, "follow-links")) {
-                opts.follow_links = true;
-            } else if (std.mem.eql(u8, long_arg, "color")) {
-                opts.color = true;
-            } else if (std.mem.eql(u8, long_arg, "no-heading")) {
-                opts.heading = false;
-            } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
-                opts.ignore_case = true;
-            } else if (std.mem.eql(u8, long_arg, "debug")) {
-                opts.debug = true;
-            } else if (std.mem.eql(u8, long_arg, "no-flush")) {
-                opts.no_flush = true;
-            } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
-                opts.unicode = false;
-            } else if (std.mem.eql(u8, long_arg, "after-context")) {
-                opts.after_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                opts.before_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                const n = try expectNum(stdout, &args, long_arg);
-                opts.before_context = n;
-                opts.after_context = n;
-            } else if (std.mem.eql(u8, long_arg, "help")) {
-                try printHelp(stdout);
-                return;
-            } else {
-                try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
-                return error.Input;
-            }
-        } else if (std.mem.startsWith(u8, arg, "-")) {
-            const short_args = arg[1..];
-            for (short_args, 0..) |a, i| {
-                const char_len = utf8_char_len(a);
-                if (char_len > 1) {
-                    const char = short_args[i .. i + char_len];
-                    try stdout.print("Unknown flag \"{s}\"\n", .{char});
-                    return error.Input;
-                }
-
-                switch (a) {
-                    'h' => opts.hidden = true,
-                    'f' => opts.follow_links = true,
-                    'c' => opts.color = true,
-                    'i' => opts.ignore_case = true,
-                    'd' => opts.debug = true,
-                    'A' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.after_context = n;
-                    },
-                    'B' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                    },
-                    'C' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                        opts.after_context = n;
-                    },
-                    else => {
-                        try stdout.print("Unknown option \"{c}\"\n", .{a});
-                        return error.Input;
-                    },
-                }
-            }
-        } else if (input_pattern == null) {
-            input_pattern = arg;
-        } else {
-            try input_paths.append(arg);
-        }
-    }
-
-    const pattern = input_pattern orelse {
-        try stdout.print("Missing required positional argument [PATTERN]\n", .{});
-        return error.Input;
+    const pattern = try parseArgs(stdout, &opts, &input_paths) orelse {
+        return;
     };
 
-    // compile regex
-    var regex_flags: u32 = 0;
-    if (opts.ignore_case) {
-        regex_flags |= c.RURE_FLAG_CASEI;
-    }
-    if (opts.unicode) {
-        regex_flags |= c.RURE_FLAG_UNICODE;
-    }
-    var regex_error = c.rure_error_new();
-    defer c.rure_error_free(regex_error);
-    const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
-    const regex = maybe_regex orelse {
-        const error_message = c.rure_error_message(regex_error);
-        try stdout.print("Error compiling pattern \"{s}\"\n{s}\n", .{ pattern, error_message });
-        return error.Input;
-    };
+    const regex = try compileRegex(stdout, &opts, pattern);
     defer c.rure_free(regex);
 
     // the stack of searched directories
@@ -271,6 +168,27 @@ fn run(stdout: BufferedStdout) !void {
             try searchPath(&ctx, &opts, input_path, abs_path);
         }
     }
+}
+
+fn compileRegex(stdout: BufferedStdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
+    var regex_flags: u32 = 0;
+    if (opts.ignore_case) {
+        regex_flags |= c.RURE_FLAG_CASEI;
+    }
+    if (opts.unicode) {
+        regex_flags |= c.RURE_FLAG_UNICODE;
+    }
+
+    var regex_error = c.rure_error_new();
+    defer c.rure_error_free(regex_error);
+    const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
+    const regex = maybe_regex orelse {
+        const error_message = c.rure_error_message(regex_error);
+        try stdout.print("Error compiling pattern \"{s}\"\n{s}\n", .{ pattern, error_message });
+        return error.Input;
+    };
+
+    return regex;
 }
 
 fn searchPath(
@@ -581,7 +499,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     }
 
                     // print lines
-                    var i :u32 = @truncate(ctx.line_buf.items.len);
+                    var i: u32 = @truncate(ctx.line_buf.items.len);
                     while (i > 0) {
                         i -= 1;
                         const cline_num = line_num - i - 1;
@@ -799,6 +717,100 @@ inline fn printRemainder(ctx: *Context, chunk_buf: *ChunkBuffer, text: []const u
     try ctx.stdout.print("{s}\n", .{remainder});
 
     return @min(lml_end + 1, text.len);
+}
+
+// Parses args into `opts` and `input_paths`. If the --help option was given a
+// message is printed and null is returned. If the args were parsed successfully
+// the *required* pattern is returned.
+fn parseArgs(stdout: BufferedStdout, opts: *UserOptions, input_paths: *ArrayList([]const u8)) !?[]const u8 {
+    var args = std.process.args();
+
+    // discard executable
+    _ = args.next();
+
+    var input_pattern: ?[]const u8 = null;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--")) {
+            const long_arg = arg[2..];
+            if (std.mem.eql(u8, long_arg, "hidden")) {
+                opts.hidden = true;
+            } else if (std.mem.eql(u8, long_arg, "follow-links")) {
+                opts.follow_links = true;
+            } else if (std.mem.eql(u8, long_arg, "color")) {
+                opts.color = true;
+            } else if (std.mem.eql(u8, long_arg, "no-heading")) {
+                opts.heading = false;
+            } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
+                opts.ignore_case = true;
+            } else if (std.mem.eql(u8, long_arg, "debug")) {
+                opts.debug = true;
+            } else if (std.mem.eql(u8, long_arg, "no-flush")) {
+                opts.no_flush = true;
+            } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
+                opts.unicode = false;
+            } else if (std.mem.eql(u8, long_arg, "after-context")) {
+                opts.after_context = try expectNum(stdout, &args, long_arg);
+            } else if (std.mem.eql(u8, long_arg, "before-context")) {
+                opts.before_context = try expectNum(stdout, &args, long_arg);
+            } else if (std.mem.eql(u8, long_arg, "before-context")) {
+                const n = try expectNum(stdout, &args, long_arg);
+                opts.before_context = n;
+                opts.after_context = n;
+            } else if (std.mem.eql(u8, long_arg, "help")) {
+                try printHelp(stdout);
+                return null;
+            } else {
+                try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
+                return error.Input;
+            }
+        } else if (std.mem.startsWith(u8, arg, "-")) {
+            const short_args = arg[1..];
+            for (short_args, 0..) |a, i| {
+                const char_len = utf8_char_len(a);
+                if (char_len > 1) {
+                    const char = short_args[i .. i + char_len];
+                    try stdout.print("Unknown flag \"{s}\"\n", .{char});
+                    return error.Input;
+                }
+
+                switch (a) {
+                    'h' => opts.hidden = true,
+                    'f' => opts.follow_links = true,
+                    'c' => opts.color = true,
+                    'i' => opts.ignore_case = true,
+                    'd' => opts.debug = true,
+                    'A' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        opts.after_context = n;
+                    },
+                    'B' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        opts.before_context = n;
+                    },
+                    'C' => {
+                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
+                        opts.before_context = n;
+                        opts.after_context = n;
+                    },
+                    else => {
+                        try stdout.print("Unknown option \"{c}\"\n", .{a});
+                        return error.Input;
+                    },
+                }
+            }
+        } else if (input_pattern == null) {
+            input_pattern = arg;
+        } else {
+            try input_paths.append(arg);
+        }
+    }
+
+    const pattern = input_pattern orelse {
+        try stdout.print("Missing required positional argument [PATTERN]\n", .{});
+        return error.Input;
+    };
+
+    return pattern;
 }
 
 fn printHelp(stdout: BufferedStdout) !void {
