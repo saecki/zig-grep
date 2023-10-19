@@ -493,7 +493,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                         if (!single_line_found) {
                             if (last_matched_line) |lml| {
                                 if (!printed_remainder) {
-                                    try printRemainder(ctx, &chunk_buf, text, lml);
+                                    _ = try printRemainder(ctx, &chunk_buf, text, lml);
                                     last_printed_line_num = last_matched_line_num;
                                     printed_remainder = true;
                                 }
@@ -512,7 +512,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 if (!printed_remainder) {
                     // remainder of last line
                     if (last_matched_line) |lml| {
-                        try printRemainder(ctx, &chunk_buf, text, lml);
+                        chunk_buf.pos = try printRemainder(ctx, &chunk_buf, text, lml);
                         last_printed_line_num = last_matched_line_num;
                         printed_remainder = true;
                     }
@@ -523,12 +523,8 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        if (!opts.heading) {
-                            try printPath(ctx, opts, path);
-                            try ctx.stdout.writeByte('-');
-                        }
-                        try printLineNum(ctx, opts, line_num);
-                        try ctx.stdout.print("-{s}\n", .{line});
+                        try printLinePrefix(ctx, opts, path, line_num, '-');
+                        try ctx.stdout.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
                     }
@@ -585,30 +581,19 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     }
 
                     // print lines
-                    var i = ctx.line_buf.items.len;
+                    var i :u32 = @truncate(ctx.line_buf.items.len);
                     while (i > 0) {
                         i -= 1;
                         const cline_num = line_num - i - 1;
                         const cline = ctx.line_buf.items[i];
-
-                        if (!opts.heading) {
-                            try printPath(ctx, opts, path);
-                            try ctx.stdout.writeByte('-');
-                        }
-                        try printLineNum(ctx, opts, cline_num);
-                        try ctx.stdout.print("-{s}", .{cline});
+                        try printLinePrefix(ctx, opts, path, cline_num, '-');
+                        try ctx.stdout.writeAll(cline);
                     }
 
                     ctx.line_buf.clearRetainingCapacity();
                 }
 
-                // line prefix
-                if (!opts.heading) {
-                    try printPath(ctx, opts, path);
-                    try ctx.stdout.writeByte(':');
-                }
-                try printLineNum(ctx, opts, line_num);
-                try ctx.stdout.writeByte(':');
+                try printLinePrefix(ctx, opts, path, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -638,7 +623,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         if (last_matched_line) |lml| {
             // remainder of last line
             if (!printed_remainder) {
-                try printRemainder(ctx, &chunk_buf, text, lml);
+                chunk_buf.pos = try printRemainder(ctx, &chunk_buf, text, lml);
                 last_printed_line_num = line_num;
                 _ = line_iter.next();
                 line_num += 1;
@@ -657,13 +642,8 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-
-                if (!opts.heading) {
-                    try printPath(ctx, opts, path);
-                    try ctx.stdout.writeByte('-');
-                }
-                try printLineNum(ctx, opts, line_num);
-                try ctx.stdout.print("-{s}\n", .{cline});
+                try printLinePrefix(ctx, opts, path, line_num, '-');
+                try ctx.stdout.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
                 last_printed_line_num = line_num;
@@ -783,17 +763,20 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printPath(ctx: *Context, opts: *const UserOptions, path: []const u8) !void {
-    if (opts.color) {
-        try ctx.stdout.writeAll("\x1b[35m");
+inline fn printLinePrefix(ctx: *Context, opts: *const UserOptions, path: []const u8, line_num: u32, sep: u8) !void {
+    if (!opts.heading) {
+        // path
+        if (opts.color) {
+            try ctx.stdout.writeAll("\x1b[35m");
+        }
+        try ctx.stdout.writeAll(path);
+        if (opts.color) {
+            try ctx.stdout.writeAll("\x1b[0m");
+        }
+        try ctx.stdout.writeByte(sep);
     }
-    try ctx.stdout.writeAll(path);
-    if (opts.color) {
-        try ctx.stdout.writeAll("\x1b[0m");
-    }
-}
 
-inline fn printLineNum(ctx: *Context, opts: *const UserOptions, line_num: usize) !void {
+    // line number
     if (opts.color) {
         try ctx.stdout.writeAll("\x1b[32m");
     }
@@ -801,11 +784,12 @@ inline fn printLineNum(ctx: *Context, opts: *const UserOptions, line_num: usize)
     if (opts.color) {
         try ctx.stdout.writeAll("\x1b[0m");
     }
+    try ctx.stdout.writeByte(sep);
 }
 
 // Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
-// Then the `chunk_buf.pos` is set to the end of the line.
-inline fn printRemainder(ctx: *Context, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !void {
+// Returns the end of the line.
+inline fn printRemainder(ctx: *Context, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
     const lml_start = textIndex(text, lml);
     const lml_end = lml_start + lml.len;
 
@@ -814,7 +798,7 @@ inline fn printRemainder(ctx: *Context, chunk_buf: *ChunkBuffer, text: []const u
     const remainder = text[chunk_buf.pos..lml_end];
     try ctx.stdout.print("{s}\n", .{remainder});
 
-    chunk_buf.pos = @min(lml_end + 1, text.len);
+    return @min(lml_end + 1, text.len);
 }
 
 fn printHelp(stdout: BufferedStdout) !void {
