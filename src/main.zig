@@ -217,8 +217,12 @@ fn run(stdout: BufferedStdout) !void {
 
     // compile regex
     var regex_flags: u32 = 0;
-    if (opts.ignore_case) regex_flags |= c.RURE_FLAG_CASEI;
-    if (opts.unicode) regex_flags |= c.RURE_FLAG_UNICODE;
+    if (opts.ignore_case) {
+        regex_flags |= c.RURE_FLAG_CASEI;
+    }
+    if (opts.unicode) {
+        regex_flags |= c.RURE_FLAG_UNICODE;
+    }
     var regex_error = c.rure_error_new();
     defer c.rure_error_free(regex_error);
     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
