@@ -27,7 +27,7 @@ jobs:
         version: 0.11.0
 
     # Build the program
-    - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml" --target-dir="rure/regex-capi/target"
+    - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
     - run: zig build test
     - run: zig build -Doptimize=ReleaseFast
 
