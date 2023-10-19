@@ -44,7 +44,7 @@ jobs:
         path: test/data
         key: test-data
     - run: |
-        if [ ! -f test/data ]; then
+        if [ ! -d test/data ]; then
           mkdir test/data
           TMP_DIR=$(mktemp -d)
           wget "${{ secrets.DOWNLOAD_LINK }}"  --output-document="${TMP_DIR}/data.zip"
