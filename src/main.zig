@@ -8,21 +8,22 @@ const ArrayList = std.ArrayList;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
-const BufferedStdout = std.io.BufferedWriter(4096, File.Writer).Writer;
+const Stdout = File.Writer;
+
+const args = @import("args.zig");
 
 const TEXT_BUF_SIZE = 1 << 19;
+const CHANNEL_BUF_SIZE = 1 << 6;
 
-const Context = struct {
-    stdout: BufferedStdout,
+const PathSearchContext = struct {
+    sink: *Sink,
     allocator: Allocator,
     regex: *c.rure,
     dir_stack: *ArrayList(StackEntry),
     name_buf: *ArrayList(u8),
-    text_buf: []u8,
-    line_buf: *ArrayList([]const u8),
 };
 
-const UserOptions = struct {
+pub const UserOptions = struct {
     before_context: u32 = 0,
     after_context: u32 = 0,
     color: bool = false,
@@ -38,6 +39,62 @@ const UserOptions = struct {
 const StackEntry = struct {
     prev_dirname_len: usize,
     iter: IterableDir.Iterator,
+};
+
+/// Handle of the worker thread, and a channel to communicate with it.
+const FileSearchWorker = struct {
+    thread: std.Thread,
+    channel_buf: []FileSearchWork,
+    channel: std.event.Channel(FileSearchMessage),
+};
+
+/// The context inside the worker thread
+const FileSearchContext = struct {
+    sink: *Sink,
+    allocator: Allocator,
+    channel: std.event.Channel(FileSearchMessage),
+    opts: *const UserOptions,
+};
+
+const FileSearchMessageType = enum {
+    Some,
+    Stop,
+};
+const FileSearchMessage = union(FileSearchMessageType) {
+    Some: FileSearchWork,
+    Stop: void,
+};
+
+// Ownership is transferred to the worker, so it is responsible for cleaning up the resources.
+const FileSearchWork = struct {
+    // Must be freed.
+    path: []const u8,
+    // Must be closed.
+    file: File,
+};
+
+// Synchronizes output to the underlying writer, so files don't mix.
+const Sink = struct {
+    const Self = @This();
+
+    fn writeByte(self: Self, byte: u8) !void {
+        // TODO
+        _ = self;
+        _ = byte;
+    }
+
+    fn writeAll(self: Self, slice: []const u8) !void {
+        // TODO
+        _ = self;
+        _ = slice;
+    }
+
+    fn print(self: Self, comptime format: []const u8, arg: anytype) !void {
+        // TODO
+        _ = arg;
+        _ = format;
+        _ = self;
+    }
 };
 
 const GrepError = error{
@@ -96,15 +153,13 @@ pub fn main() void {
 }
 
 fn wrap_run() !void {
-    var unbufferred_stdout = std.io.getStdOut();
-    defer unbufferred_stdout.close();
-    var buffered = std.io.bufferedWriter(unbufferred_stdout.writer());
-    defer buffered.flush() catch {};
-    var stdout = buffered.writer();
+    var stdout_fd = std.io.getStdOut();
+    defer stdout_fd.close();
+    const stdout = stdout_fd.writer();
 
     run(stdout) catch |err| {
         if (err == error.Input) {
-            try printHelp(stdout);
+            try args.printHelp(stdout);
         } else if (err == error.Loop) {
             // print nothing
         } else {
@@ -115,7 +170,7 @@ fn wrap_run() !void {
     };
 }
 
-fn run(stdout: BufferedStdout) !void {
+fn run(stdout: Stdout) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -123,34 +178,63 @@ fn run(stdout: BufferedStdout) !void {
     var opts = UserOptions{};
     var input_paths = ArrayList([]const u8).init(allocator);
     defer input_paths.deinit();
-    const pattern = try parseArgs(stdout, &opts, &input_paths) orelse {
+    const pattern = try args.parseArgs(stdout, &opts, &input_paths) orelse {
         return;
     };
 
     const regex = try compileRegex(stdout, &opts, pattern);
     defer c.rure_free(regex);
 
-    // the stack of searched directories
+    var num_threads: usize = 4;
+    if (std.Thread.getCpuCount()) |num_cpus| {
+        num_threads = num_cpus;
+    } else |e| {
+        if (opts.debug) {
+            try stdout.print("Couldn't get cpu count defaulting to {} thrads:\n{}\n", .{ num_threads, e });
+        }
+    }
+
+    // synchronize writes stdout from this point on
+    var sink = Sink{};
+    var thread_pool = ArrayList(FileSearchWorker).init(allocator);
+    defer thread_pool.deinit();
+    try thread_pool.ensureTotalCapacity(num_threads);
+
+    for (0..num_threads) |_| {
+        const buffer = allocator.alloc(FileSearchMessage, CHANNEL_BUF_SIZE);
+        errdefer allocator.free(buffer);
+        const channel = std.event.Channel(FileSearchWork).init(buffer);
+
+        const ctx = FileSearchContext{
+            .sink = &sink,
+            .allocator = allocator,
+            .chanel = channel,
+            .opts = &opts,
+        };
+        const thread = try std.Thread.spawn(.{}, consumeWork, .{ctx});
+        const worker = FileSearchWorker{ .thread = thread, .channel = channel };
+        try thread_pool.append(worker);
+    }
+    defer {
+        for (thread_pool.items) |t| {
+            t.channel.put(.Stop);
+        }
+        for (thread_pool.items) |t| {
+            t.thread.join();
+            allocator.free(t.buffer);
+        }
+    }
+
     var dir_stack = ArrayList(StackEntry).init(allocator);
     defer dir_stack.deinit();
     var name_buf = ArrayList(u8).init(allocator);
     defer name_buf.deinit();
-
-    // reuse text buffer
-    var text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
-    defer allocator.free(text_buf);
-    var line_buf = ArrayList([]const u8).init(allocator);
-    defer line_buf.deinit();
-    try line_buf.ensureTotalCapacity(opts.before_context);
-
-    var ctx = Context{
-        .stdout = stdout,
+    var ctx = PathSearchContext{
+        .sink = &sink,
         .allocator = allocator,
         .regex = regex,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
-        .text_buf = text_buf,
-        .line_buf = &line_buf,
     };
 
     if (input_paths.items.len == 0) {
@@ -170,7 +254,7 @@ fn run(stdout: BufferedStdout) !void {
     }
 }
 
-fn compileRegex(stdout: BufferedStdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
+fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
     var regex_flags: u32 = 0;
     if (opts.ignore_case) {
         regex_flags |= c.RURE_FLAG_CASEI;
@@ -192,7 +276,7 @@ fn compileRegex(stdout: BufferedStdout, opts: *const UserOptions, pattern: []con
 }
 
 fn searchPath(
-    ctx: *Context,
+    ctx: *PathSearchContext,
     opts: *const UserOptions,
     input_path: ?[]const u8,
     abs_path: []const u8,
@@ -200,12 +284,11 @@ fn searchPath(
     if (input_path) |p| {
         const open_flags = .{ .mode = .read_only };
         const file = try std.fs.openFileAbsolute(abs_path, open_flags);
-        defer file.close();
 
         const stat = try file.stat();
         switch (stat.kind) {
             .file => {
-                try searchFile(ctx, opts, p, file);
+                try enqueueWork(ctx, p, file);
                 return;
             },
             .directory => {},
@@ -215,7 +298,7 @@ fn searchPath(
                     const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
                     try searchLink(ctx, opts, abs_path, "", link);
                 } else if (opts.debug) {
-                    try ctx.stdout.print("Not following link: \"{s}\"\n", .{p});
+                    try ctx.sink.print("Not following link: \"{s}\"\n", .{p});
                 }
                 return;
             },
@@ -272,7 +355,7 @@ fn searchPath(
         // skip hidden files
         if (!opts.hidden and entry.name[0] == '.') {
             if (opts.debug) {
-                try ctx.stdout.print("Not searching hidden path: \"{s}\"\n", .{ctx.name_buf.items});
+                try ctx.sink.print("Not searching hidden path: \"{s}\"\n", .{ctx.name_buf.items});
             }
             continue;
         }
@@ -281,8 +364,7 @@ fn searchPath(
             .file => {
                 const open_flags = .{ .mode = .read_only };
                 var file = try current.iter.dir.openFile(entry.name, open_flags);
-                defer file.close();
-                try searchFile(ctx, opts, ctx.name_buf.items, file);
+                try enqueueWork(ctx, ctx.name_buf.items, file);
             },
             .directory => {
                 const new_dir = try current.iter.dir.openIterableDir(entry.name, open_options);
@@ -309,7 +391,7 @@ fn searchPath(
                     const sub_path = ctx.name_buf.items[sub_path_idx..];
                     try searchLink(ctx, opts, abs_path, sub_path, link);
                 } else if (opts.debug) {
-                    try ctx.stdout.print("Not following link: \"{s}\"\n", .{ctx.name_buf.items});
+                    try ctx.sink.print("Not following link: \"{s}\"\n", .{ctx.name_buf.items});
                 }
             },
             // ignore
@@ -326,7 +408,7 @@ fn searchPath(
 }
 
 fn searchLink(
-    ctx: *Context,
+    ctx: *PathSearchContext,
     opts: *const UserOptions,
     abs_search_path: []const u8,
     sub_search_path: []const u8,
@@ -337,7 +419,7 @@ fn searchLink(
     const abs_link_path = try std.fs.realpath(link_path, &path_buf);
 
     if (symlinkLoops(abs_search_path, sub_search_path, abs_link_path)) {
-        try ctx.stdout.print("Loop detected \"{s}\" points to ancetor \"{s}\"\n", .{ sub_search_path, link_path });
+        try ctx.sink.print("Loop detected \"{s}\" points to ancetor \"{s}\"\n", .{ sub_search_path, link_path });
         return error.Loop;
     }
 
@@ -346,24 +428,65 @@ fn searchLink(
     defer dir_stack.deinit();
     var name_buf = ArrayList(u8).init(ctx.allocator);
     defer name_buf.deinit();
-
-    var new_ctx = Context{
-        .stdout = ctx.stdout,
+    var new_ctx = PathSearchContext{
+        .sink = ctx.sink,
         .allocator = ctx.allocator,
         .regex = ctx.regex,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
-        .text_buf = ctx.text_buf,
-        .line_buf = ctx.line_buf,
     };
 
     try searchPath(&new_ctx, opts, link_path, abs_link_path);
 }
 
-fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: File) !void {
+/// Send work through a channel to a worker in `ctx.thread_pool`.
+/// `path` is copied, and the responsibility of closing `file` is handed over.
+fn enqueueWork(ctx: PathSearchContext, path: []const u8, file: File) !void {
+    const owned_path = try ctx.allocator.alloc(u8, path.len);
+    @memcpy(owned_path, path);
+
+    const work = FileSearchWork{
+        .path = owned_path,
+        .file = file,
+    };
+    const msg = FileSearchMessage{ .Some = work };
+
+    ctx.channel.put(msg);
+}
+
+fn consumeWork(ctx: FileSearchContext) !void {
+    // reuse text buffer
+    var text_buf = try ctx.allocator.alloc(u8, TEXT_BUF_SIZE);
+    defer ctx.allocator.free(text_buf);
+    var line_buf = ArrayList([]const u8).init(ctx.allocator);
+    defer line_buf.deinit();
+    try line_buf.ensureTotalCapacity(ctx.opts.before_context);
+
+    while (true) {
+        var msg = ctx.channel.get();
+        switch (msg) {
+            .Some => |work| {
+                defer work.file.close();
+                defer ctx.allocator.free(work.path);
+                try searchFile(&ctx, text_buf, &line_buf, *work);
+            },
+            .Stop => break,
+        }
+    }
+}
+
+fn searchFile(
+    ctx: *FileSearchContext,
+    text_buf: []u8,
+    line_buf: *ArrayList([]const u8),
+    work: *FileSearchWork,
+) !void {
+    const opts = ctx.opts;
+    const path = work.path;
+    var file = work.file;
     var chunk_buf = ChunkBuffer{
         .reader = file.reader(),
-        .items = ctx.text_buf,
+        .items = text_buf,
         .pos = 0,
         .data_end = 0,
         .is_last_chunk = false,
@@ -411,7 +534,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                         if (!single_line_found) {
                             if (last_matched_line) |lml| {
                                 if (!printed_remainder) {
-                                    _ = try printRemainder(ctx, &chunk_buf, text, lml);
+                                    _ = try printRemainder(ctx.sink, &chunk_buf, text, lml);
                                     last_printed_line_num = last_matched_line_num;
                                     printed_remainder = true;
                                 }
@@ -430,7 +553,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 if (!printed_remainder) {
                     // remainder of last line
                     if (last_matched_line) |lml| {
-                        chunk_buf.pos = try printRemainder(ctx, &chunk_buf, text, lml);
+                        chunk_buf.pos = try printRemainder(ctx.sink, &chunk_buf, text, lml);
                         last_printed_line_num = last_matched_line_num;
                         printed_remainder = true;
                     }
@@ -441,8 +564,8 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        try printLinePrefix(ctx, opts, path, line_num, '-');
-                        try ctx.stdout.print("{s}\n", .{line});
+                        try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                        try ctx.sink.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
                     }
@@ -457,13 +580,13 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             // heading
             if (!file_has_match and opts.heading) {
                 if (opts.color) {
-                    try ctx.stdout.writeAll("\x1b[35m");
+                    try ctx.sink.writeAll("\x1b[35m");
                 }
-                try ctx.stdout.writeAll(path);
+                try ctx.sink.writeAll(path);
                 if (opts.color) {
-                    try ctx.stdout.writeAll("\x1b[0m");
+                    try ctx.sink.writeAll("\x1b[0m");
                 }
-                try ctx.stdout.writeByte('\n');
+                try ctx.sink.writeByte('\n');
             }
 
             const first_match_in_line = line_num != last_matched_line_num;
@@ -473,7 +596,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                 const unprinted_before_lines = line_num - lpl_num - 1;
                 if (opts.before_context > 0 or opts.after_context > 0) {
                     if (file_has_match and unprinted_before_lines > opts.before_context) {
-                        try ctx.stdout.writeAll("--\n");
+                        try ctx.sink.writeAll("--\n");
                     }
                 }
 
@@ -490,7 +613,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                             }
                         }
                         const cline = text[cline_start..cline_end];
-                        try ctx.line_buf.append(cline);
+                        try line_buf.append(cline);
 
                         if (cline_start == 0) {
                             break;
@@ -499,19 +622,19 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
                     }
 
                     // print lines
-                    var i: u32 = @truncate(ctx.line_buf.items.len);
+                    var i: u32 = @truncate(line_buf.items.len);
                     while (i > 0) {
                         i -= 1;
                         const cline_num = line_num - i - 1;
-                        const cline = ctx.line_buf.items[i];
-                        try printLinePrefix(ctx, opts, path, cline_num, '-');
-                        try ctx.stdout.writeAll(cline);
+                        const cline = line_buf.items[i];
+                        try printLinePrefix(ctx.sink, opts, path, cline_num, '-');
+                        try ctx.sink.writeAll(cline);
                     }
 
-                    ctx.line_buf.clearRetainingCapacity();
+                    line_buf.clearRetainingCapacity();
                 }
 
-                try printLinePrefix(ctx, opts, path, line_num, ':');
+                try printLinePrefix(ctx.sink, opts, path, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -520,16 +643,16 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
             // preceding text
             const preceding_text_start = @max(current_line_start, chunk_buf.pos);
             const preceding_text = text[preceding_text_start..match.start];
-            try ctx.stdout.writeAll(preceding_text);
+            try ctx.sink.writeAll(preceding_text);
 
             // the match
             const match_text = text[match.start..match.end];
             if (opts.color) {
-                try ctx.stdout.writeAll("\x1b[0m\x1b[1m\x1b[31m");
+                try ctx.sink.writeAll("\x1b[0m\x1b[1m\x1b[31m");
             }
-            try ctx.stdout.writeAll(match_text);
+            try ctx.sink.writeAll(match_text);
             if (opts.color) {
-                try ctx.stdout.writeAll("\x1b[0m");
+                try ctx.sink.writeAll("\x1b[0m");
             }
 
             chunk_buf.pos = match.end;
@@ -541,7 +664,7 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
         if (last_matched_line) |lml| {
             // remainder of last line
             if (!printed_remainder) {
-                chunk_buf.pos = try printRemainder(ctx, &chunk_buf, text, lml);
+                chunk_buf.pos = try printRemainder(ctx.sink, &chunk_buf, text, lml);
                 last_printed_line_num = line_num;
                 _ = line_iter.next();
                 line_num += 1;
@@ -560,8 +683,8 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-                try printLinePrefix(ctx, opts, path, line_num, '-');
-                try ctx.stdout.print("{s}\n", .{cline});
+                try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                try ctx.sink.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
                 last_printed_line_num = line_num;
@@ -613,10 +736,10 @@ fn searchFile(ctx: *Context, opts: *const UserOptions, path: []const u8, file: F
 
     if (file_has_match) {
         if (opts.heading) {
-            try ctx.stdout.writeByte('\n');
+            try ctx.sink.writeByte('\n');
         }
         if (!opts.no_flush) {
-            try ctx.stdout.context.flush();
+            try ctx.sink.context.flush();
         }
     }
 }
@@ -681,196 +804,42 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(ctx: *Context, opts: *const UserOptions, path: []const u8, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: []const u8, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
-            try ctx.stdout.writeAll("\x1b[35m");
+            try sink.writeAll("\x1b[35m");
         }
-        try ctx.stdout.writeAll(path);
+        try sink.writeAll(path);
         if (opts.color) {
-            try ctx.stdout.writeAll("\x1b[0m");
+            try sink.writeAll("\x1b[0m");
         }
-        try ctx.stdout.writeByte(sep);
+        try sink.writeByte(sep);
     }
 
     // line number
     if (opts.color) {
-        try ctx.stdout.writeAll("\x1b[32m");
+        try sink.writeAll("\x1b[32m");
     }
-    try ctx.stdout.print("{}", .{line_num});
+    try sink.print("{}", .{line_num});
     if (opts.color) {
-        try ctx.stdout.writeAll("\x1b[0m");
+        try sink.writeAll("\x1b[0m");
     }
-    try ctx.stdout.writeByte(sep);
+    try sink.writeByte(sep);
 }
 
 // Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
 // Returns the end of the line.
-inline fn printRemainder(ctx: *Context, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
+inline fn printRemainder(sink: *Sink, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
     const lml_start = textIndex(text, lml);
     const lml_end = lml_start + lml.len;
 
     std.debug.assert(chunk_buf.pos <= lml_end);
 
     const remainder = text[chunk_buf.pos..lml_end];
-    try ctx.stdout.print("{s}\n", .{remainder});
+    try sink.print("{s}\n", .{remainder});
 
     return @min(lml_end + 1, text.len);
-}
-
-// Parses args into `opts` and `input_paths`. If the --help option was given a
-// message is printed and null is returned. If the args were parsed successfully
-// the *required* pattern is returned.
-fn parseArgs(stdout: BufferedStdout, opts: *UserOptions, input_paths: *ArrayList([]const u8)) !?[]const u8 {
-    var args = std.process.args();
-
-    // discard executable
-    _ = args.next();
-
-    var input_pattern: ?[]const u8 = null;
-    while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--")) {
-            const long_arg = arg[2..];
-            if (std.mem.eql(u8, long_arg, "hidden")) {
-                opts.hidden = true;
-            } else if (std.mem.eql(u8, long_arg, "follow-links")) {
-                opts.follow_links = true;
-            } else if (std.mem.eql(u8, long_arg, "color")) {
-                opts.color = true;
-            } else if (std.mem.eql(u8, long_arg, "no-heading")) {
-                opts.heading = false;
-            } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
-                opts.ignore_case = true;
-            } else if (std.mem.eql(u8, long_arg, "debug")) {
-                opts.debug = true;
-            } else if (std.mem.eql(u8, long_arg, "no-flush")) {
-                opts.no_flush = true;
-            } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
-                opts.unicode = false;
-            } else if (std.mem.eql(u8, long_arg, "after-context")) {
-                opts.after_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                opts.before_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                const n = try expectNum(stdout, &args, long_arg);
-                opts.before_context = n;
-                opts.after_context = n;
-            } else if (std.mem.eql(u8, long_arg, "help")) {
-                try printHelp(stdout);
-                return null;
-            } else {
-                try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
-                return error.Input;
-            }
-        } else if (std.mem.startsWith(u8, arg, "-")) {
-            const short_args = arg[1..];
-            for (short_args, 0..) |a, i| {
-                const char_len = utf8_char_len(a);
-                if (char_len > 1) {
-                    const char = short_args[i .. i + char_len];
-                    try stdout.print("Unknown flag \"{s}\"\n", .{char});
-                    return error.Input;
-                }
-
-                switch (a) {
-                    'h' => opts.hidden = true,
-                    'f' => opts.follow_links = true,
-                    'c' => opts.color = true,
-                    'i' => opts.ignore_case = true,
-                    'd' => opts.debug = true,
-                    'A' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.after_context = n;
-                    },
-                    'B' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                    },
-                    'C' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                        opts.after_context = n;
-                    },
-                    else => {
-                        try stdout.print("Unknown option \"{c}\"\n", .{a});
-                        return error.Input;
-                    },
-                }
-            }
-        } else if (input_pattern == null) {
-            input_pattern = arg;
-        } else {
-            try input_paths.append(arg);
-        }
-    }
-
-    const pattern = input_pattern orelse {
-        try stdout.print("Missing required positional argument [PATTERN]\n", .{});
-        return error.Input;
-    };
-
-    return pattern;
-}
-
-fn printHelp(stdout: BufferedStdout) !void {
-    const HELP_MESSAGE =
-        \\
-        \\usage: searcher [OPTIONS] PATTERN [PATH ...]
-        \\ -A,--after-context <arg>     prints the given number of following lines
-        \\                              for each match
-        \\ -B,--before-context <arg>    prints the given number of preceding lines
-        \\                              for each match
-        \\ -c,--color                   print with colors, highlighting the matched
-        \\                              phrase in the output
-        \\ -C,--context <arg>           prints the number of preceding and following
-        \\                              lines for each match. this is equivalent to
-        \\                              setting --before-context and --after-context
-        \\ -d,--debug                   print why paths aren't searched
-        \\ -f,--follow-links            follow symbolic links
-        \\ -h,--hidden                  search hidden files and folders
-        \\    --help                    print this message
-        \\ -i,--ignore-case             search case insensitive
-        \\    --no-flush                don't flush output after every file
-        \\    --no-heading              prints a single line including the filename
-        \\                              for each match, instead of grouping matches
-        \\                              by file
-        \\    --no-unicode              disable unicdoe support
-        \\
-    ;
-    try stdout.print(HELP_MESSAGE, .{});
-}
-
-fn expectNumAfterShortArg(
-    stdout: BufferedStdout,
-    args: *std.process.ArgIterator,
-    short_args: []const u8,
-    index: usize,
-) !u32 {
-    if (index != short_args.len - 1) {
-        try stdout.print("Missing value after \"{s}\"", .{short_args[index .. index + 1]});
-        return error.Input;
-    }
-
-    return expectNum(stdout, args, short_args[index .. index + 1]);
-}
-
-fn expectNum(
-    stdout: BufferedStdout,
-    args: *std.process.ArgIterator,
-    name: []const u8,
-) !u32 {
-    const str = args.next() orelse {
-        try stdout.print("Missing value after \"{s}\"\n", .{name});
-        return error.Input;
-    };
-
-    const num = std.fmt.parseInt(u32, str, 10) catch {
-        try stdout.print("Expected number for \"{s}\", found \"{s}\"\n", .{ name, str });
-        return error.Input;
-    };
-
-    return num;
 }
 
 fn symlinkLoops(
@@ -903,30 +872,4 @@ test "symlink loop detection" {
     try std.testing.expect(symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d"));
     try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/o"));
     try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d/o"));
-}
-
-fn utf8_char_len(first_byte: u8) usize {
-    var leading_ones: u8 = 0;
-    const HIGH_BYTE: u8 = 0x80;
-    while (((HIGH_BYTE >> @truncate(leading_ones)) & first_byte) != 0) {
-        leading_ones += 1;
-    }
-    switch (leading_ones) {
-        0 => return 1,
-        else => return @as(usize, leading_ones),
-    }
-}
-
-fn check(string: []const u8, len: usize) !void {
-    const first_byte = string[0];
-    const char_len = utf8_char_len(first_byte);
-    // std.debug.print("{s}, first_byte: {b}, char_len {}\n", .{ string, first_byte, char_len });
-    try std.testing.expectEqual(char_len, len);
-}
-
-test "utf-8 char len" {
-    try check("a", 1);
-    try check("ö", 2);
-    try check("\u{2757}", 3);
-    try check("\u{01FAE0}", 4);
 }
