@@ -9,16 +9,17 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
 const Stdout = File.Writer;
+const Futex = std.Thread.Futex;
 
 const args = @import("args.zig");
 
 const TEXT_BUF_SIZE = 1 << 19;
-const CHANNEL_BUF_SIZE = 1 << 6;
+const QUEUE_BUF_SIZE = 1 << 6;
 
 const PathSearchContext = struct {
-    sink: *Sink,
     allocator: Allocator,
-    regex: *c.rure,
+    sink: *Sink,
+    queue: *AtomicQueue(FileSearchWork),
     dir_stack: *ArrayList(StackEntry),
     name_buf: *ArrayList(u8),
 };
@@ -41,29 +42,133 @@ const StackEntry = struct {
     iter: IterableDir.Iterator,
 };
 
-/// Handle of the worker thread, and a channel to communicate with it.
-const FileSearchWorker = struct {
-    thread: std.Thread,
-    channel_buf: []FileSearchWork,
-    channel: std.event.Channel(FileSearchMessage),
-};
-
 /// The context inside the worker thread
 const FileSearchContext = struct {
-    sink: *Sink,
     allocator: Allocator,
-    channel: std.event.Channel(FileSearchMessage),
+    sink: *Sink,
+    queue: *AtomicQueue(FileSearchWork),
+    regex: *c.rure,
     opts: *const UserOptions,
 };
 
-const FileSearchMessageType = enum {
-    Some,
-    Stop,
-};
-const FileSearchMessage = union(FileSearchMessageType) {
-    Some: FileSearchWork,
-    Stop: void,
-};
+/// Thread safe ringbuffer queue with idempotent stop signal.
+pub fn AtomicQueue(comptime T: type) type {
+    return struct {
+        mutex: std.Thread.Mutex,
+        state: std.atomic.Atomic(State),
+        buf: []T,
+        pos: usize,
+        len: usize,
+        stop_signal: bool,
+
+        const State = enum(u32) {
+            Empty,
+            NonEmpty,
+            Full,
+        };
+        const Self = @This();
+        const MessageType = enum {
+            Some,
+            Stop,
+        };
+        const Message = union(MessageType) {
+            Some: T,
+            Stop: void,
+        };
+
+        /// Initialize the queue, there is no `deinit`, and the `buf` has to be
+        /// cleaned up by the caller.
+        pub fn init(buf: []T) Self {
+            return Self{
+                .mutex = std.Thread.Mutex{},
+                .state = .{ .value = .Empty },
+                .buf = buf,
+                .pos = 0,
+                .len = 0,
+                .stop_signal = false,
+            };
+        }
+
+        /// Append data to the queue.
+        /// Calling `append` after `stop` has been called is valid but pointless.
+        /// It will just be ignored.
+        ///
+        /// If the internal ringbuffer is full, this will block until space is available.
+        pub fn append(self: *Self, data: T) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.stop_signal) {
+                return;
+            }
+
+            if (self.state.value == .Full) {
+                self.mutex.unlock();
+                Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Full));
+                self.mutex.lock();
+
+                if (self.stop_signal) {
+                    return;
+                }
+            }
+
+            const next_pos = (self.pos + self.len) % self.buf.len;
+            self.buf[next_pos] = data;
+            self.len += 1;
+
+            self.state.value = if (self.len == self.buf.len) .Full else .NonEmpty;
+            Futex.wake(@ptrCast(&self.state), 1);
+        }
+
+        /// Sends the stop signal, which will make calling `get` always yield
+        /// Message.Stop, once all previous data has been consumed.
+        ///
+        /// This won't block, even if the internal ringbuffer is full.
+        pub fn stop(self: *Self) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            self.stop_signal = true;
+            self.state.value = if (self.len == self.buf.len) .Full else .NonEmpty;
+            const max_waiters: u32 = if (self.len == 0) std.math.maxInt(u32) else 1;
+            Futex.wake(@ptrCast(&self.state), max_waiters);
+        }
+
+        /// Get queued up data, or a stop message
+        ///
+        /// If the internal ringbuffer is empty, this will block until a message
+        /// is available.
+        pub fn get(self: *Self) Message {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.len == 0) {
+                if (self.stop_signal) {
+                    return .Stop;
+                }
+
+                self.mutex.unlock();
+                Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Empty));
+                self.mutex.lock();
+
+                if (self.len == 0) {
+                    std.debug.assert(self.stop_signal);
+                    return .Stop;
+                }
+            }
+
+            const data = self.buf[self.pos];
+
+            self.pos = (self.pos + 1) % self.buf.len;
+            self.len -= 1;
+
+            self.state.value = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
+            Futex.wake(@ptrCast(&self.state), 1);
+
+            return Message{ .Some = data };
+        }
+    };
+}
 
 // Ownership is transferred to the worker, so it is responsible for cleaning up the resources.
 const FileSearchWork = struct {
@@ -75,24 +180,30 @@ const FileSearchWork = struct {
 
 // Synchronizes output to the underlying writer, so files don't mix.
 const Sink = struct {
+    writer: File.Writer,
+
     const Self = @This();
 
-    fn writeByte(self: Self, byte: u8) !void {
+    fn writeByte(self: *Self, byte: u8) !void {
         // TODO
         _ = self;
         _ = byte;
     }
 
-    fn writeAll(self: Self, slice: []const u8) !void {
+    fn writeAll(self: *Self, slice: []const u8) !void {
         // TODO
         _ = self;
         _ = slice;
     }
 
-    fn print(self: Self, comptime format: []const u8, arg: anytype) !void {
+    fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
         // TODO
         _ = arg;
         _ = format;
+        _ = self;
+    }
+
+    fn flush(self: *Self) !void {
         _ = self;
     }
 };
@@ -182,6 +293,7 @@ fn run(stdout: Stdout) !void {
         return;
     };
 
+    // TODO: is actually regex thread safe?
     const regex = try compileRegex(stdout, &opts, pattern);
     defer c.rure_free(regex);
 
@@ -195,33 +307,30 @@ fn run(stdout: Stdout) !void {
     }
 
     // synchronize writes stdout from this point on
-    var sink = Sink{};
-    var thread_pool = ArrayList(FileSearchWorker).init(allocator);
+    var sink = Sink{ .writer = stdout };
+
+    var thread_pool = ArrayList(std.Thread).init(allocator);
     defer thread_pool.deinit();
     try thread_pool.ensureTotalCapacity(num_threads);
+    var queue_buf = try allocator.alloc(FileSearchWork, QUEUE_BUF_SIZE);
+    defer allocator.free(queue_buf);
+    var queue = AtomicQueue(FileSearchWork).init(queue_buf);
 
     for (0..num_threads) |_| {
-        const buffer = allocator.alloc(FileSearchMessage, CHANNEL_BUF_SIZE);
-        errdefer allocator.free(buffer);
-        const channel = std.event.Channel(FileSearchWork).init(buffer);
-
         const ctx = FileSearchContext{
             .sink = &sink,
             .allocator = allocator,
-            .chanel = channel,
+            .queue = &queue,
+            .regex = regex,
             .opts = &opts,
         };
         const thread = try std.Thread.spawn(.{}, consumeWork, .{ctx});
-        const worker = FileSearchWorker{ .thread = thread, .channel = channel };
-        try thread_pool.append(worker);
+        try thread_pool.append(thread);
     }
     defer {
+        queue.stop();
         for (thread_pool.items) |t| {
-            t.channel.put(.Stop);
-        }
-        for (thread_pool.items) |t| {
-            t.thread.join();
-            allocator.free(t.buffer);
+            t.join();
         }
     }
 
@@ -232,7 +341,7 @@ fn run(stdout: Stdout) !void {
     var ctx = PathSearchContext{
         .sink = &sink,
         .allocator = allocator,
-        .regex = regex,
+        .queue = &queue,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
     };
@@ -429,9 +538,9 @@ fn searchLink(
     var name_buf = ArrayList(u8).init(ctx.allocator);
     defer name_buf.deinit();
     var new_ctx = PathSearchContext{
-        .sink = ctx.sink,
         .allocator = ctx.allocator,
-        .regex = ctx.regex,
+        .sink = ctx.sink,
+        .queue = ctx.queue,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
     };
@@ -439,9 +548,9 @@ fn searchLink(
     try searchPath(&new_ctx, opts, link_path, abs_link_path);
 }
 
-/// Send work through a channel to a worker in `ctx.thread_pool`.
+/// Send work through a queue to a worker in `ctx.thread_pool`.
 /// `path` is copied, and the responsibility of closing `file` is handed over.
-fn enqueueWork(ctx: PathSearchContext, path: []const u8, file: File) !void {
+fn enqueueWork(ctx: *PathSearchContext, path: []const u8, file: File) !void {
     const owned_path = try ctx.allocator.alloc(u8, path.len);
     @memcpy(owned_path, path);
 
@@ -449,12 +558,13 @@ fn enqueueWork(ctx: PathSearchContext, path: []const u8, file: File) !void {
         .path = owned_path,
         .file = file,
     };
-    const msg = FileSearchMessage{ .Some = work };
-
-    ctx.channel.put(msg);
+    ctx.queue.append(work);
 }
 
-fn consumeWork(ctx: FileSearchContext) !void {
+fn consumeWork(_ctx: FileSearchContext) !void {
+    // make ctx mutable
+    var ctx = _ctx;
+
     // reuse text buffer
     var text_buf = try ctx.allocator.alloc(u8, TEXT_BUF_SIZE);
     defer ctx.allocator.free(text_buf);
@@ -463,12 +573,13 @@ fn consumeWork(ctx: FileSearchContext) !void {
     try line_buf.ensureTotalCapacity(ctx.opts.before_context);
 
     while (true) {
-        var msg = ctx.channel.get();
+        var msg = ctx.queue.get();
         switch (msg) {
-            .Some => |work| {
+            .Some => |_work| {
+                var work = _work;
                 defer work.file.close();
                 defer ctx.allocator.free(work.path);
-                try searchFile(&ctx, text_buf, &line_buf, *work);
+                try searchFile(&ctx, text_buf, &line_buf, &work);
             },
             .Stop => break,
         }
@@ -739,7 +850,7 @@ fn searchFile(
             try ctx.sink.writeByte('\n');
         }
         if (!opts.no_flush) {
-            try ctx.sink.context.flush();
+            try ctx.sink.flush();
         }
     }
 }
