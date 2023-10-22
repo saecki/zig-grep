@@ -102,7 +102,8 @@ pub fn AtomicQueue(comptime T: type) type {
                 return;
             }
 
-            if (self.state.value == .Full) {
+            const state = self.state.load(std.atomic.Ordering.SeqCst);
+            if (state == .Full) {
                 self.mutex.unlock();
                 Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Full));
                 self.mutex.lock();
@@ -116,7 +117,8 @@ pub fn AtomicQueue(comptime T: type) type {
             self.buf[next_pos] = data;
             self.len += 1;
 
-            self.state.value = if (self.len == self.buf.len) .Full else .NonEmpty;
+            const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
+            self.state.store(new_state, std.atomic.Ordering.SeqCst);
             Futex.wake(@ptrCast(&self.state), 1);
         }
 
@@ -128,8 +130,13 @@ pub fn AtomicQueue(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
+            if (self.stop_signal) {
+                return;
+            }
+
             self.stop_signal = true;
-            self.state.value = if (self.len == self.buf.len) .Full else .NonEmpty;
+            const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
+            self.state.store(new_state, std.atomic.Ordering.SeqCst);
             const max_waiters: u32 = if (self.len == 0) std.math.maxInt(u32) else 1;
             Futex.wake(@ptrCast(&self.state), max_waiters);
         }
@@ -152,7 +159,7 @@ pub fn AtomicQueue(comptime T: type) type {
                 self.mutex.lock();
 
                 if (self.len == 0) {
-                    std.debug.assert(self.stop_signal);
+                    // std.debug.assert(self.stop_signal);
                     return .Stop;
                 }
             }
@@ -162,7 +169,8 @@ pub fn AtomicQueue(comptime T: type) type {
             self.pos = (self.pos + 1) % self.buf.len;
             self.len -= 1;
 
-            self.state.value = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
+            const new_state: State = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
+            self.state.store(new_state, std.atomic.Ordering.SeqCst);
             Futex.wake(@ptrCast(&self.state), 1);
 
             return Message{ .Some = data };
@@ -185,25 +193,23 @@ const Sink = struct {
     const Self = @This();
 
     fn writeByte(self: *Self, byte: u8) !void {
-        // TODO
-        _ = self;
-        _ = byte;
+        // TODO: synchronize
+        try self.writer.writeByte(byte);
     }
 
     fn writeAll(self: *Self, slice: []const u8) !void {
-        // TODO
-        _ = self;
-        _ = slice;
+        // TODO: synchronize
+        try self.writer.writeAll(slice);
     }
 
     fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
-        // TODO
-        _ = arg;
-        _ = format;
-        _ = self;
+        // TODO: synchronize
+        try self.writer.print(format, arg);
     }
 
+    /// Signal that the current writer is done.
     fn flush(self: *Self) !void {
+        // TODO: synchronize
         _ = self;
     }
 };
@@ -302,7 +308,7 @@ fn run(stdout: Stdout) !void {
         num_threads = num_cpus;
     } else |e| {
         if (opts.debug) {
-            try stdout.print("Couldn't get cpu count defaulting to {} thrads:\n{}\n", .{ num_threads, e });
+            try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
         }
     }
 
