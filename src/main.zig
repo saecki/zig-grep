@@ -14,7 +14,7 @@ const Futex = std.Thread.Futex;
 const args = @import("args.zig");
 
 const TEXT_BUF_SIZE = 1 << 19;
-const QUEUE_BUF_SIZE = 1 << 6;
+const QUEUE_BUF_SIZE = 1 << 8;
 
 const PathSearchContext = struct {
     allocator: Allocator,
@@ -44,6 +44,7 @@ const StackEntry = struct {
 
 /// The context inside the worker thread
 const FileSearchContext = struct {
+    id: usize,
     allocator: Allocator,
     sink: *Sink,
     queue: *AtomicQueue(FileSearchWork),
@@ -102,8 +103,7 @@ pub fn AtomicQueue(comptime T: type) type {
                 return;
             }
 
-            const state = self.state.load(std.atomic.Ordering.SeqCst);
-            if (state == .Full) {
+            while (self.len >= self.buf.len) {
                 self.mutex.unlock();
                 Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Full));
                 self.mutex.lock();
@@ -149,7 +149,7 @@ pub fn AtomicQueue(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            if (self.len == 0) {
+            while (self.len == 0) {
                 if (self.stop_signal) {
                     return .Stop;
                 }
@@ -157,11 +157,6 @@ pub fn AtomicQueue(comptime T: type) type {
                 self.mutex.unlock();
                 Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Empty));
                 self.mutex.lock();
-
-                if (self.len == 0) {
-                    // std.debug.assert(self.stop_signal);
-                    return .Stop;
-                }
             }
 
             const data = self.buf[self.pos];
@@ -178,39 +173,57 @@ pub fn AtomicQueue(comptime T: type) type {
     };
 }
 
-// Ownership is transferred to the worker, so it is responsible for cleaning up the resources.
+/// Ownership is transferred to the worker, so it is responsible for cleaning up the resources.
 const FileSearchWork = struct {
-    // Must be freed.
-    path: []const u8,
-    // Must be closed.
-    file: File,
+    /// Has to be freed by the worker.
+    abs_path: []const u8,
+    /// May not be freed.
+    display_path: ?[]const u8,
+    /// Start index of the subpath, that can be concatenated onto the `display_path`.
+    sub_path_idx: usize,
 };
 
-// Synchronizes output to the underlying writer, so files don't mix.
+/// Synchronizes output to the underlying writer, so files don't mix.
+///
+/// TODO: buffer per thread, so this only blocks when flushing the buffer.
 const Sink = struct {
+    mutex: std.Thread.Mutex,
     writer: File.Writer,
 
     const Self = @This();
 
+    fn init(writer: File.Writer) Self {
+        return Self{
+            .mutex = std.Thread.Mutex{},
+            .writer = writer,
+        };
+    }
+
     fn writeByte(self: *Self, byte: u8) !void {
-        // TODO: synchronize
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         try self.writer.writeByte(byte);
     }
 
     fn writeAll(self: *Self, slice: []const u8) !void {
-        // TODO: synchronize
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         try self.writer.writeAll(slice);
     }
 
     fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
-        // TODO: synchronize
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         try self.writer.print(format, arg);
     }
 
     /// Signal that the current writer is done.
     fn flush(self: *Self) !void {
-        // TODO: synchronize
-        _ = self;
+        self.mutex.lock();
+        defer self.mutex.unlock();
     }
 };
 
@@ -306,6 +319,9 @@ fn run(stdout: Stdout) !void {
     var num_threads: usize = 4;
     if (std.Thread.getCpuCount()) |num_cpus| {
         num_threads = num_cpus;
+        if (opts.debug) {
+            try stdout.print("Got cpu count {}\n", .{num_cpus});
+        }
     } else |e| {
         if (opts.debug) {
             try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
@@ -313,7 +329,7 @@ fn run(stdout: Stdout) !void {
     }
 
     // synchronize writes stdout from this point on
-    var sink = Sink{ .writer = stdout };
+    var sink = Sink.init(stdout);
 
     var thread_pool = ArrayList(std.Thread).init(allocator);
     defer thread_pool.deinit();
@@ -322,8 +338,9 @@ fn run(stdout: Stdout) !void {
     defer allocator.free(queue_buf);
     var queue = AtomicQueue(FileSearchWork).init(queue_buf);
 
-    for (0..num_threads) |_| {
+    for (0..num_threads) |i| {
         const ctx = FileSearchContext{
+            .id = i,
             .sink = &sink,
             .allocator = allocator,
             .queue = &queue,
@@ -345,8 +362,8 @@ fn run(stdout: Stdout) !void {
     var name_buf = ArrayList(u8).init(allocator);
     defer name_buf.deinit();
     var ctx = PathSearchContext{
-        .sink = &sink,
         .allocator = allocator,
+        .sink = &sink,
         .queue = &queue,
         .dir_stack = &dir_stack,
         .name_buf = &name_buf,
@@ -403,11 +420,13 @@ fn searchPath(
         const stat = try file.stat();
         switch (stat.kind) {
             .file => {
-                try enqueueWork(ctx, p, file);
+                file.close();
+                try enqueueWork(ctx, abs_path, input_path, 0);
                 return;
             },
-            .directory => {},
+            .directory => file.close(),
             .sym_link => {
+                file.close();
                 if (opts.follow_links) {
                     var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
@@ -418,14 +437,10 @@ fn searchPath(
                 return;
             },
             // ignore
-            .block_device => return,
-            .character_device => return,
-            .named_pipe => return,
-            .unix_domain_socket => return,
-            .whiteout => return,
-            .door => return,
-            .event_port => return,
-            .unknown => return,
+            .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {
+                file.close();
+                return;
+            },
         }
     }
 
@@ -436,10 +451,8 @@ fn searchPath(
     // the currently searched path name
     ctx.name_buf.clearRetainingCapacity();
     var dirname_len: usize = 0;
-    if (input_path) |p| {
-        try ctx.name_buf.appendSlice(p);
-        dirname_len += p.len;
-    }
+    try ctx.name_buf.appendSlice(abs_path);
+    dirname_len += abs_path.len;
 
     // push first dir entry
     try ctx.dir_stack.append(StackEntry{
@@ -477,9 +490,9 @@ fn searchPath(
 
         switch (entry.kind) {
             .file => {
-                const open_flags = .{ .mode = .read_only };
-                var file = try current.iter.dir.openFile(entry.name, open_flags);
-                try enqueueWork(ctx, ctx.name_buf.items, file);
+                const is_root = abs_path.len == 1 and abs_path[0] == '/';
+                const sub_path_idx = if (is_root) 1 else abs_path.len + 1;
+                try enqueueWork(ctx, ctx.name_buf.items, input_path, sub_path_idx);
             },
             .directory => {
                 const new_dir = try current.iter.dir.openIterableDir(entry.name, open_options);
@@ -510,18 +523,12 @@ fn searchPath(
                 }
             },
             // ignore
-            .block_device => {},
-            .character_device => {},
-            .named_pipe => {},
-            .unix_domain_socket => {},
-            .whiteout => {},
-            .door => {},
-            .event_port => {},
-            .unknown => {},
+            .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
         }
     }
 }
 
+/// `link_path` is the dereferenced link.
 fn searchLink(
     ctx: *PathSearchContext,
     opts: *const UserOptions,
@@ -551,18 +558,19 @@ fn searchLink(
         .name_buf = &name_buf,
     };
 
-    try searchPath(&new_ctx, opts, link_path, abs_link_path);
+    try searchPath(&new_ctx, opts, null, abs_link_path);
 }
 
 /// Send work through a queue to a worker in `ctx.thread_pool`.
 /// `path` is copied, and the responsibility of closing `file` is handed over.
-fn enqueueWork(ctx: *PathSearchContext, path: []const u8, file: File) !void {
-    const owned_path = try ctx.allocator.alloc(u8, path.len);
-    @memcpy(owned_path, path);
+fn enqueueWork(ctx: *PathSearchContext, abs_path: []const u8, display_path: ?[]const u8, sub_path_idx: usize) !void {
+    const owned_abs_path = try ctx.allocator.alloc(u8, abs_path.len);
+    @memcpy(owned_abs_path, abs_path);
 
     const work = FileSearchWork{
-        .path = owned_path,
-        .file = file,
+        .abs_path = owned_abs_path,
+        .display_path = display_path,
+        .sub_path_idx = sub_path_idx,
     };
     ctx.queue.append(work);
 }
@@ -581,10 +589,8 @@ fn consumeWork(_ctx: FileSearchContext) !void {
     while (true) {
         var msg = ctx.queue.get();
         switch (msg) {
-            .Some => |_work| {
-                var work = _work;
-                defer work.file.close();
-                defer ctx.allocator.free(work.path);
+            .Some => |work| {
+                defer ctx.allocator.free(work.abs_path);
                 try searchFile(&ctx, text_buf, &line_buf, &work);
             },
             .Stop => break,
@@ -596,11 +602,13 @@ fn searchFile(
     ctx: *FileSearchContext,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
-    work: *FileSearchWork,
+    work: *const FileSearchWork,
 ) !void {
+    const open_flags = .{ .mode = .read_only };
+    const file = try std.fs.openFileAbsolute(work.abs_path, open_flags);
+    defer file.close();
+
     const opts = ctx.opts;
-    const path = work.path;
-    var file = work.file;
     var chunk_buf = ChunkBuffer{
         .reader = file.reader(),
         .items = text_buf,
@@ -681,7 +689,7 @@ fn searchFile(
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                        try printLinePrefix(ctx.sink, opts, work, line_num, '-');
                         try ctx.sink.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
@@ -699,7 +707,7 @@ fn searchFile(
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[35m");
                 }
-                try ctx.sink.writeAll(path);
+                try printPath(ctx.sink, work);
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[0m");
                 }
@@ -744,14 +752,14 @@ fn searchFile(
                         i -= 1;
                         const cline_num = line_num - i - 1;
                         const cline = line_buf.items[i];
-                        try printLinePrefix(ctx.sink, opts, path, cline_num, '-');
+                        try printLinePrefix(ctx.sink, opts, work, cline_num, '-');
                         try ctx.sink.writeAll(cline);
                     }
 
                     line_buf.clearRetainingCapacity();
                 }
 
-                try printLinePrefix(ctx.sink, opts, path, line_num, ':');
+                try printLinePrefix(ctx.sink, opts, work, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -800,7 +808,7 @@ fn searchFile(
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-                try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                try printLinePrefix(ctx.sink, opts, work, line_num, '-');
                 try ctx.sink.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
@@ -921,13 +929,16 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: []const u8, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const FileSearchWork, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
             try sink.writeAll("\x1b[35m");
         }
-        try sink.writeAll(path);
+        if (work.display_path) |p| {
+            try sink.writeAll(p);
+        }
+        try sink.writeAll(work.abs_path[work.sub_path_idx..]);
         if (opts.color) {
             try sink.writeAll("\x1b[0m");
         }
@@ -943,6 +954,16 @@ inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: []const u
         try sink.writeAll("\x1b[0m");
     }
     try sink.writeByte(sep);
+}
+
+inline fn printPath(sink: *Sink, work: *const FileSearchWork) !void {
+    if (work.display_path) |p| {
+        try sink.writeAll(p);
+        if (p.len != 0 and p[p.len - 1] != '/') {
+            try sink.writeByte(std.fs.path.sep);
+        }
+    }
+    try sink.writeAll(work.abs_path[work.sub_path_idx..]);
 }
 
 // Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
