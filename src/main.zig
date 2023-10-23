@@ -9,20 +9,16 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const IterableDir = std.fs.IterableDir;
 const Stdout = File.Writer;
-const Futex = std.Thread.Futex;
 
 const args = @import("args.zig");
+const atomic = @import("atomic.zig");
+const AtomicQueue = atomic.AtomicQueue;
+const AtomicStack = atomic.AtomicStack;
+const WalkerEntry = AtomicStack(DirIter).Entry;
+const Sink = atomic.Sink;
 
 const TEXT_BUF_SIZE = 1 << 19;
-const QUEUE_BUF_SIZE = 1 << 8;
-
-const PathSearchContext = struct {
-    allocator: Allocator,
-    sink: *Sink,
-    queue: *AtomicQueue(FileSearchWork),
-    dir_stack: *ArrayList(StackEntry),
-    name_buf: *ArrayList(u8),
-};
+const SEACHER_QUEUE_BUF_SIZE = 1 << 8;
 
 pub const UserOptions = struct {
     before_context: u32 = 0,
@@ -37,194 +33,38 @@ pub const UserOptions = struct {
     unicode: bool = true,
 };
 
-const StackEntry = struct {
-    prev_dirname_len: usize,
+const WalkerContext = struct {
+    allocator: Allocator,
+    sink: *Sink,
+    stack: *AtomicStack(DirIter),
+    queue: *AtomicQueue(SearchWork),
+    opts: *const UserOptions,
+};
+
+const DirIter = struct {
+    path: DisplayPath,
     iter: IterableDir.Iterator,
 };
 
 /// The context inside the worker thread
-const FileSearchContext = struct {
-    id: usize,
+const SearcherContext = struct {
     allocator: Allocator,
     sink: *Sink,
-    queue: *AtomicQueue(FileSearchWork),
+    queue: *AtomicQueue(SearchWork),
     regex: *c.rure,
     opts: *const UserOptions,
 };
 
-/// Thread safe ringbuffer queue with idempotent stop signal.
-pub fn AtomicQueue(comptime T: type) type {
-    return struct {
-        mutex: std.Thread.Mutex,
-        state: std.atomic.Atomic(State),
-        buf: []T,
-        pos: usize,
-        len: usize,
-        stop_signal: bool,
-
-        const State = enum(u32) {
-            Empty,
-            NonEmpty,
-            Full,
-        };
-        const Self = @This();
-        const MessageType = enum {
-            Some,
-            Stop,
-        };
-        const Message = union(MessageType) {
-            Some: T,
-            Stop: void,
-        };
-
-        /// Initialize the queue, there is no `deinit`, and the `buf` has to be
-        /// cleaned up by the caller.
-        pub fn init(buf: []T) Self {
-            return Self{
-                .mutex = std.Thread.Mutex{},
-                .state = .{ .value = .Empty },
-                .buf = buf,
-                .pos = 0,
-                .len = 0,
-                .stop_signal = false,
-            };
-        }
-
-        /// Append data to the queue.
-        /// Calling `append` after `stop` has been called is valid but pointless.
-        /// It will just be ignored.
-        ///
-        /// If the internal ringbuffer is full, this will block until space is available.
-        pub fn append(self: *Self, data: T) void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            if (self.stop_signal) {
-                return;
-            }
-
-            while (self.len >= self.buf.len) {
-                self.mutex.unlock();
-                Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Full));
-                self.mutex.lock();
-
-                if (self.stop_signal) {
-                    return;
-                }
-            }
-
-            const next_pos = (self.pos + self.len) % self.buf.len;
-            self.buf[next_pos] = data;
-            self.len += 1;
-
-            const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
-            Futex.wake(@ptrCast(&self.state), 1);
-        }
-
-        /// Sends the stop signal, which will make calling `get` always yield
-        /// Message.Stop, once all previous data has been consumed.
-        ///
-        /// This won't block, even if the internal ringbuffer is full.
-        pub fn stop(self: *Self) void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            if (self.stop_signal) {
-                return;
-            }
-
-            self.stop_signal = true;
-            const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
-            const max_waiters: u32 = if (self.len == 0) std.math.maxInt(u32) else 1;
-            Futex.wake(@ptrCast(&self.state), max_waiters);
-        }
-
-        /// Get queued up data, or a stop message
-        ///
-        /// If the internal ringbuffer is empty, this will block until a message
-        /// is available.
-        pub fn get(self: *Self) Message {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            while (self.len == 0) {
-                if (self.stop_signal) {
-                    return .Stop;
-                }
-
-                self.mutex.unlock();
-                Futex.wait(@ptrCast(&self.state), @intFromEnum(State.Empty));
-                self.mutex.lock();
-            }
-
-            const data = self.buf[self.pos];
-
-            self.pos = (self.pos + 1) % self.buf.len;
-            self.len -= 1;
-
-            const new_state: State = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
-            Futex.wake(@ptrCast(&self.state), 1);
-
-            return Message{ .Some = data };
-        }
-    };
-}
-
-/// Ownership is transferred to the worker, so it is responsible for cleaning up the resources.
-const FileSearchWork = struct {
+/// Ownership is transferred to the search worker, so it is responsible for cleaning up the resources.
+const SearchWork = DisplayPath;
+const DisplayPath = struct {
     /// Has to be freed by the worker.
     abs_path: []const u8,
-    /// May not be freed.
+    /// A path that the user provided, use this instead of absolute paths to make output more readable.
     display_path: ?[]const u8,
-    /// Start index of the subpath, that can be concatenated onto the `display_path`.
-    sub_path_idx: usize,
-};
-
-/// Synchronizes output to the underlying writer, so files don't mix.
-///
-/// TODO: buffer per thread, so this only blocks when flushing the buffer.
-const Sink = struct {
-    mutex: std.Thread.Mutex,
-    writer: File.Writer,
-
-    const Self = @This();
-
-    fn init(writer: File.Writer) Self {
-        return Self{
-            .mutex = std.Thread.Mutex{},
-            .writer = writer,
-        };
-    }
-
-    fn writeByte(self: *Self, byte: u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        try self.writer.writeByte(byte);
-    }
-
-    fn writeAll(self: *Self, slice: []const u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        try self.writer.writeAll(slice);
-    }
-
-    fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        try self.writer.print(format, arg);
-    }
-
-    /// Signal that the current writer is done.
-    fn flush(self: *Self) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-    }
+    /// Start offset of the subpath inside absolute paths.
+    /// The subpath that can then be appended to the `display_path`.
+    sub_path_offset: usize,
 };
 
 const GrepError = error{
@@ -312,13 +152,13 @@ fn run(stdout: Stdout) !void {
         return;
     };
 
-    // TODO: is actually regex thread safe?
     const regex = try compileRegex(stdout, &opts, pattern);
     defer c.rure_free(regex);
 
-    var num_threads: usize = 4;
+    var num_threads: u32 = 4;
     if (std.Thread.getCpuCount()) |num_cpus| {
-        num_threads = num_cpus;
+        const n: u32 = @truncate(num_cpus);
+        num_threads = @max(num_threads, n);
         if (opts.debug) {
             try stdout.print("Got cpu count {}\n", .{num_cpus});
         }
@@ -327,62 +167,105 @@ fn run(stdout: Stdout) !void {
             try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
         }
     }
+    const num_walkers = @max(2, num_threads / 4);
+    const num_searchers = num_threads - num_walkers;
 
-    // synchronize writes stdout from this point on
+    // synchronize writes to stdout from here on
     var sink = Sink.init(stdout);
 
-    var thread_pool = ArrayList(std.Thread).init(allocator);
-    defer thread_pool.deinit();
-    try thread_pool.ensureTotalCapacity(num_threads);
-    var queue_buf = try allocator.alloc(FileSearchWork, QUEUE_BUF_SIZE);
+    // start searcher threads
+    var queue_buf = try allocator.alloc(SearchWork, SEACHER_QUEUE_BUF_SIZE);
     defer allocator.free(queue_buf);
-    var queue = AtomicQueue(FileSearchWork).init(queue_buf);
-
-    for (0..num_threads) |i| {
-        const ctx = FileSearchContext{
-            .id = i,
-            .sink = &sink,
+    var queue = AtomicQueue(SearchWork).init(queue_buf);
+    var searchers = ArrayList(std.Thread).init(allocator);
+    defer searchers.deinit();
+    try searchers.ensureTotalCapacity(num_threads);
+    for (0..num_searchers) |_| {
+        const ctx = SearcherContext{
             .allocator = allocator,
+            .sink = &sink,
             .queue = &queue,
             .regex = regex,
             .opts = &opts,
         };
-        const thread = try std.Thread.spawn(.{}, consumeWork, .{ctx});
-        try thread_pool.append(thread);
+        const thread = try std.Thread.spawn(.{}, startSearcher, .{ctx});
+        try searchers.append(thread);
     }
     defer {
         queue.stop();
-        for (thread_pool.items) |t| {
+        for (searchers.items) |t| {
             t.join();
         }
     }
 
-    var dir_stack = ArrayList(StackEntry).init(allocator);
-    defer dir_stack.deinit();
-    var name_buf = ArrayList(u8).init(allocator);
-    defer name_buf.deinit();
-    var ctx = PathSearchContext{
-        .allocator = allocator,
-        .sink = &sink,
-        .queue = &queue,
-        .dir_stack = &dir_stack,
-        .name_buf = &name_buf,
-    };
-
+    // fill stack initially
+    var stack_buf = ArrayList(WalkerEntry).init(allocator);
+    defer stack_buf.deinit();
     if (input_paths.items.len == 0) {
-        // canonicalize path
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const abs_path = try std.fs.realpath(".", &path_buf);
+        var owned_abs_path = try allocator.alloc(u8, abs_path.len);
+        @memcpy(owned_abs_path, abs_path);
+        const path = DisplayPath{
+            .abs_path = owned_abs_path,
+            .display_path = null,
+            .sub_path_idx = abs_path.len,
+        };
 
-        try searchPath(&ctx, &opts, null, abs_path);
+        const open_options = .{ .no_follow = true };
+        const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+        stack_buf.append(WalkerEntry{
+            .depth = 0,
+            .data = DirIter{
+                .iter = dir.iterate(),
+                .path = path,
+            },
+        });
     } else {
         for (input_paths.items) |input_path| {
-            // canonicalize path
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const abs_path = try std.fs.realpath(input_path, &path_buf);
+            var owned_abs_path = try allocator.alloc(u8, abs_path.len);
+            @memcpy(owned_abs_path, abs_path);
+            const path = DisplayPath{
+                .abs_path = abs_path,
+                .display_path = input_path,
+                .sub_path_idx = abs_path.len,
+            };
 
-            try searchPath(&ctx, &opts, input_path, abs_path);
+            const dir_iter = getDirIterOrEnqueue(&sink, &queue, &opts, path);
+            if (dir_iter) |d| {
+                stack_buf.append(WalkerEntry{
+                    .depth = 0,
+                    .data = d,
+                });
+            }
         }
+    }
+
+    // start walker threads only if necessary
+    if (stack_buf.items.len == 0) {
+        return;
+    }
+
+    var stack = AtomicStack(DirIter).init(allocator, num_walkers);
+    defer stack.deinit();
+    var walkers = ArrayList(std.Thread).init(allocator);
+    defer walkers.deinit();
+    try walkers.ensureTotalCapacity(num_threads);
+    for (0..num_walkers) |_| {
+        const ctx = WalkerContext{
+            .allocator = allocator,
+            .sink = &sink,
+            .stack = &stack,
+            .queue = &queue,
+            .opts = &opts,
+        };
+        const thread = try std.Thread.spawn(.{}, startWalker, .{ctx});
+        try walkers.append(thread);
+    }
+    for (walkers.items) |t| {
+        t.join();
     }
 }
 
@@ -407,119 +290,100 @@ fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !
     return regex;
 }
 
-fn searchPath(
-    ctx: *PathSearchContext,
-    opts: *const UserOptions,
-    input_path: ?[]const u8,
-    abs_path: []const u8,
-) (GrepError || ResourceError)!void {
-    if (input_path) |p| {
-        const open_flags = .{ .mode = .read_only };
-        const file = try std.fs.openFileAbsolute(abs_path, open_flags);
+fn startWalker(_ctx: WalkerContext) !void {
+    // make ctx mutable
+    var ctx = _ctx;
 
-        const stat = try file.stat();
-        switch (stat.kind) {
-            .file => {
-                file.close();
-                try enqueueWork(ctx, abs_path, input_path, 0);
-                return;
+    var path_buf = ArrayList(u8).init(ctx.allocator);
+    defer path_buf.deinit();
+
+    while (true) {
+        const msg = ctx.stack.pop();
+        switch (msg) {
+            .Some => |entry| {
+                try walkPath(ctx, entry);
             },
-            .directory => file.close(),
-            .sym_link => {
-                file.close();
-                if (opts.follow_links) {
-                    var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                    const link = try std.fs.readLinkAbsolute(abs_path, &link_buf);
-                    try searchLink(ctx, opts, abs_path, "", link);
-                } else if (opts.debug) {
-                    try ctx.sink.print("Not following link: \"{s}\"\n", .{p});
-                }
-                return;
-            },
-            // ignore
-            .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {
-                file.close();
-                return;
-            },
+            .Stop => break,
         }
     }
+}
 
-    // open path to search
-    const open_options = .{ .no_follow = true };
-    const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+fn walkPath(
+    ctx: *WalkerContext,
+    path_buf: *ArrayList(u8),
+    _entry: WalkerEntry,
+) (GrepError || ResourceError)!void {
+    const opts = ctx.opts;
+    
+    var entry = _entry;
+    var dir_path = entry.data.path;
 
-    // the currently searched path name
-    ctx.name_buf.clearRetainingCapacity();
-    var dirname_len: usize = 0;
-    try ctx.name_buf.appendSlice(abs_path);
-    dirname_len += abs_path.len;
+    path_buf.clearRetainingCapacity();
+    path_buf.appendSlice(dir_path.abs_path);
+    if (dir_path.abs_path.len > 0 and dir_path.abs_path[dir_path.abs_path.len - 1] != std.fs.path.sep) {
+        path_buf.append(std.fs.path.sep);
+    }
+    var dirname_len = path_buf.items.len;
 
-    // push first dir entry
-    try ctx.dir_stack.append(StackEntry{
-        .prev_dirname_len = 0,
-        .iter = dir.iterate(),
-    });
-
-    // recursively search the path
-    while (ctx.dir_stack.items.len != 0) {
-        ctx.name_buf.shrinkRetainingCapacity(dirname_len);
-
-        var current = &ctx.dir_stack.items[ctx.dir_stack.items.len - 1];
-        var entry = try current.iter.next() orelse {
-            dirname_len = current.prev_dirname_len;
-            current.iter.dir.close();
-            _ = ctx.dir_stack.pop();
-            continue;
+    while (true) {
+        const e = entry.data.iter.next() orelse {
+            try ctx.allocator.free(dir_path.abs_path);
+            entry.data.iter.dir.close();
+            break;
         };
 
-        var additional_len: usize = 0;
-        if (dirname_len != 0 and ctx.name_buf.items[dirname_len - 1] != '/') {
-            try ctx.name_buf.append(std.fs.path.sep);
-            additional_len += 1;
-        }
-        try ctx.name_buf.appendSlice(entry.name);
-        additional_len += entry.name.len;
-
         // skip hidden files
-        if (!opts.hidden and entry.name[0] == '.') {
+        if (!opts.hidden and e.name[0] == '.') {
             if (opts.debug) {
                 try ctx.sink.print("Not searching hidden path: \"{s}\"\n", .{ctx.name_buf.items});
             }
             continue;
         }
 
-        switch (entry.kind) {
+        path_buf.shrinkRetainingCapacity(dirname_len);
+        path_buf.appendSlice(e.name);
+
+        switch (e.kind) {
             .file => {
-                const is_root = abs_path.len == 1 and abs_path[0] == '/';
-                const sub_path_idx = if (is_root) 1 else abs_path.len + 1;
-                try enqueueWork(ctx, ctx.name_buf.items, input_path, sub_path_idx);
+                enqueueWork(ctx, path_buf.items, dir_path.display_path, dir_path.sub_path_idx);
             },
             .directory => {
-                const new_dir = try current.iter.dir.openIterableDir(entry.name, open_options);
-                const stack_entry = StackEntry{
-                    .prev_dirname_len = dirname_len,
-                    .iter = new_dir.iterate(),
-                };
-                try ctx.dir_stack.append(stack_entry);
+                const open_options = .{ .no_follow = true };
+                var abs_path = try ctx.allocator.alloc(u8, dir_path.abs_path.len);
+                @memcpy(abs_path, path_buf.items);
 
-                dirname_len += additional_len;
+                const sub_dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+                const sub_dir_path = DisplayPath{
+                    .abs_path = abs_path,
+                    .display_path = dir_path.display_path,
+                    .sub_path_offset = dir_path.sub_path_offset,
+                };
+                const sub_dir_entry = WalkerEntry{
+                    .depth = entry.depth + 1,
+                    .data = DirIter{
+                        .iter = sub_dir.iterate(),
+                        .path = sub_dir_path,
+                    },
+                };
+
+                // put back dir iter on the stack, and traverse depth first
+                ctx.stack.push(entry);
+
+                path_buf.append(std.fs.path.sep);
+                dirname_len = path_buf.items.len;
+                entry = sub_dir_entry;
+                dir_path = sub_dir_entry.data.path;
             },
             .sym_link => {
                 if (opts.follow_links) {
                     var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                    const link = try current.iter.dir.readLink(entry.name, &link_buf);
-                    var sub_path_idx: usize = 0;
-                    if (input_path) |p| {
-                        if (p.len == 0 or p[p.len - 1] == std.fs.path.sep) {
-                            sub_path_idx = p.len;
-                        } else {
-                            sub_path_idx = p.len + 1;
-                        }
-                    }
-                    const sub_path = ctx.name_buf.items[sub_path_idx..];
-                    try searchLink(ctx, opts, abs_path, sub_path, link);
+                    const link = try std.fs.readLinkAbsolute(dir_path.abs_path, &link_buf);
+                    _ = link;
+                    // TODO: search link
                 } else if (opts.debug) {
-                    try ctx.sink.print("Not following link: \"{s}\"\n", .{ctx.name_buf.items});
+                    try ctx.sink.writeAll("Not following link: \"");
+                    printPath(ctx.sink, &dir_path);
+                    try ctx.sink.writeAll("\"\n");
                 }
             },
             // ignore
@@ -528,9 +392,50 @@ fn searchPath(
     }
 }
 
+inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(SearchWork), opts: *const UserOptions, path: DisplayPath) !?DirIter {
+    const open_flags = .{ .mode = .read_only };
+    const file = try std.fs.openFileAbsolute(path.abs_path, open_flags);
+
+    const stat = try file.stat();
+    switch (stat.kind) {
+        .file => {
+            file.close();
+            queue.append(path);
+        },
+        .directory => {
+            file.close();
+            const open_options = .{ .no_follow = true };
+            const dir = try std.fs.openIterableDirAbsolute(path.abs_path, open_options);
+            return DirIter{
+                .iter = dir.iterate(),
+                .path = path,
+            };
+        },
+        .sym_link => {
+            file.close();
+            if (opts.follow_links) {
+                var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const link = try std.fs.readLinkAbsolute(path.abs_path, &link_buf);
+                _ = link;
+                // TODO: search link
+            } else if (opts.debug) {
+                try sink.writeAll("Not following link: \"");
+                printPath(sink, &path);
+                try sink.writeAll("\"\n");
+            }
+        },
+        // ignore
+        .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {
+            file.close();
+        },
+    }
+
+    return null;
+}
+
 /// `link_path` is the dereferenced link.
 fn searchLink(
-    ctx: *PathSearchContext,
+    ctx: *WalkerContext,
     opts: *const UserOptions,
     abs_search_path: []const u8,
     sub_search_path: []const u8,
@@ -546,11 +451,11 @@ fn searchLink(
     }
 
     // the stack of searched directories
-    var dir_stack = ArrayList(StackEntry).init(ctx.allocator);
+    var dir_stack = ArrayList(WalkerEntry).init(ctx.allocator);
     defer dir_stack.deinit();
     var name_buf = ArrayList(u8).init(ctx.allocator);
     defer name_buf.deinit();
-    var new_ctx = PathSearchContext{
+    var new_ctx = WalkerContext{
         .allocator = ctx.allocator,
         .sink = ctx.sink,
         .queue = ctx.queue,
@@ -558,16 +463,16 @@ fn searchLink(
         .name_buf = &name_buf,
     };
 
-    try searchPath(&new_ctx, opts, null, abs_link_path);
+    try walkPath(&new_ctx, opts, null, abs_link_path);
 }
 
 /// Send work through a queue to a worker in `ctx.thread_pool`.
 /// `path` is copied, and the responsibility of closing `file` is handed over.
-fn enqueueWork(ctx: *PathSearchContext, abs_path: []const u8, display_path: ?[]const u8, sub_path_idx: usize) !void {
+fn enqueueWork(ctx: *WalkerContext, abs_path: []const u8, display_path: ?[]const u8, sub_path_idx: usize) !void {
     const owned_abs_path = try ctx.allocator.alloc(u8, abs_path.len);
     @memcpy(owned_abs_path, abs_path);
 
-    const work = FileSearchWork{
+    const work = SearchWork{
         .abs_path = owned_abs_path,
         .display_path = display_path,
         .sub_path_idx = sub_path_idx,
@@ -575,7 +480,7 @@ fn enqueueWork(ctx: *PathSearchContext, abs_path: []const u8, display_path: ?[]c
     ctx.queue.append(work);
 }
 
-fn consumeWork(_ctx: FileSearchContext) !void {
+fn startSearcher(_ctx: SearcherContext) !void {
     // make ctx mutable
     var ctx = _ctx;
 
@@ -599,10 +504,10 @@ fn consumeWork(_ctx: FileSearchContext) !void {
 }
 
 fn searchFile(
-    ctx: *FileSearchContext,
+    ctx: *SearcherContext,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
-    work: *const FileSearchWork,
+    work: *const SearchWork,
 ) !void {
     const open_flags = .{ .mode = .read_only };
     const file = try std.fs.openFileAbsolute(work.abs_path, open_flags);
@@ -929,7 +834,7 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const FileSearchWork, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const SearchWork, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
@@ -956,14 +861,15 @@ inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const Fi
     try sink.writeByte(sep);
 }
 
-inline fn printPath(sink: *Sink, work: *const FileSearchWork) !void {
+inline fn printPath(sink: *Sink, work: *const DisplayPath) !void {
+    const sub_path = work.abs_path[work.sub_path_idx..];
     if (work.display_path) |p| {
         try sink.writeAll(p);
-        if (p.len != 0 and p[p.len - 1] != '/') {
+        if (sub_path.len > 0 and p.len > 0 and p[p.len - 1] != std.fs.path.sep) {
             try sink.writeByte(std.fs.path.sep);
         }
     }
-    try sink.writeAll(work.abs_path[work.sub_path_idx..]);
+    try sink.writeAll(sub_path);
 }
 
 // Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
