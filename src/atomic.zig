@@ -134,45 +134,51 @@ pub fn AtomicQueue(comptime T: type) type {
 pub fn AtomicStack(comptime T: type) type {
     return struct {
         mutex: std.Thread.Mutex,
-        alive_workers: u32,
         state: std.atomic.Atomic(u32),
-        buf: ArrayList(Entry),
+        alive_workers: u32,
+        buf: *ArrayList(Entry),
 
         const Self = @This();
-        const Message = AtomicMessage(Entry);
-        const Entry = struct {
+        pub const Message = AtomicMessage(Entry);
+        pub const Entry = struct {
             depth: u16,
             data: T,
         };
-        const State = enum(u32) {
+        pub const State = enum(u32) {
             Empty,
-            NoneEmpty,
+            NonEmpty,
             Stop,
         };
 
-        /// Initialize the queue, `deinit` has to be called.
-        pub fn init(buf: ArrayList(Entry), num_workers: u32) Self {
+        /// Initialize the queue, there is no `deinit`.
+        pub fn init(buf: *ArrayList(Entry), num_workers: u32) Self {
             std.debug.assert(num_workers > 0);
-
+            
+            const state: State = if (buf.items.len == 0) .Empty else .NonEmpty;
             return Self{
                 .mutex = std.Thread.Mutex{},
-                .state = std.atomic.Atomic(u32).init(num_workers),
+                .state = std.atomic.Atomic(u32).init(@intFromEnum(state)),
+                .alive_workers = num_workers,
                 .buf = buf,
             };
         }
 
-        pub fn push(self: *Self, entry: Entry) void {
+        pub fn push(self: *Self, entry: Entry) !void {
             self.mutex.lock();
             defer self.mutex.unlock();
 
             // depth first iteration, so avoid putting a higher directory on top of the stack.
-            const idx = for (self.buf.items, 0..) |e, i| {
-                if (e.depth > entry.depth) {
-                    break i;
+            var i = self.buf.items.len;
+            while (i > 0) {
+                i -= 1;
+                const e = self.buf.items[i];
+                if (e.depth < entry.depth) {
+                    i += 1;
+                    break;
                 }
-            } else self.buf.items.len;
-            self.buf.insert(idx, entry);
-            self.state.store(&self.state, std.atomic.Ordering.SeqCst);
+            }
+            try self.buf.insert(i, entry);
+            self.state.store(@intFromEnum(State.NonEmpty), std.atomic.Ordering.SeqCst);
             Futex.wake(&self.state, 1);
         }
 
@@ -183,13 +189,13 @@ pub fn AtomicStack(comptime T: type) type {
             while (self.buf.items.len == 0) {
                 self.alive_workers -= 1;
                 if (self.alive_workers == 0) {
-                    self.state.store(@intFromEnum(.Stop), std.atomic.Ordering.SeqCst);
+                    self.state.store(@intFromEnum(State.Stop), std.atomic.Ordering.SeqCst);
                     Futex.wake(&self.state, std.math.maxInt(u32));
                     return .Stop;
                 }
 
                 self.mutex.unlock();
-                Futex.wait(&self.state, @intFromEnum(.Empty));
+                Futex.wait(&self.state, @intFromEnum(State.Empty));
                 self.mutex.lock();
 
                 self.alive_workers += 1;
@@ -198,7 +204,7 @@ pub fn AtomicStack(comptime T: type) type {
             const val = self.buf.pop();
 
             if (self.buf.items.len == 0) {
-                self.state.store(@intFromEnum(.Empty), std.atomic.Ordering.SeqCst);
+                self.state.store(@intFromEnum(State.Empty), std.atomic.Ordering.SeqCst);
             }
 
             return Message{ .Some = val };
@@ -209,34 +215,34 @@ pub fn AtomicStack(comptime T: type) type {
 /// Synchronizes output to the underlying writer, so files don't mix.
 ///
 /// TODO: buffer per thread, so this only blocks when flushing the buffer.
-const Sink = struct {
+pub const Sink = struct {
     mutex: std.Thread.Mutex,
     writer: File.Writer,
 
     const Self = @This();
 
-    fn init(writer: File.Writer) Self {
+    pub fn init(writer: File.Writer) Self {
         return Self{
             .mutex = std.Thread.Mutex{},
             .writer = writer,
         };
     }
 
-    fn writeByte(self: *Self, byte: u8) !void {
+    pub fn writeByte(self: *Self, byte: u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         try self.writer.writeByte(byte);
     }
 
-    fn writeAll(self: *Self, slice: []const u8) !void {
+    pub fn writeAll(self: *Self, slice: []const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         try self.writer.writeAll(slice);
     }
 
-    fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
+    pub fn print(self: *Self, comptime format: []const u8, arg: anytype) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
@@ -244,7 +250,7 @@ const Sink = struct {
     }
 
     /// Signal that the current writer is done.
-    fn flush(self: *Self) !void {
+    pub fn flush(self: *Self) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
     }

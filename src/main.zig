@@ -37,7 +37,7 @@ const WalkerContext = struct {
     allocator: Allocator,
     sink: *Sink,
     stack: *AtomicStack(DirIter),
-    queue: *AtomicQueue(SearchWork),
+    queue: *AtomicQueue(DisplayPath),
     opts: *const UserOptions,
 };
 
@@ -50,20 +50,19 @@ const DirIter = struct {
 const SearcherContext = struct {
     allocator: Allocator,
     sink: *Sink,
-    queue: *AtomicQueue(SearchWork),
+    queue: *AtomicQueue(DisplayPath),
     regex: *c.rure,
     opts: *const UserOptions,
 };
 
 /// Ownership is transferred to the search worker, so it is responsible for cleaning up the resources.
-const SearchWork = DisplayPath;
 const DisplayPath = struct {
     /// Has to be freed by the worker.
-    abs_path: []const u8,
+    abs: []const u8,
     /// A path that the user provided, use this instead of absolute paths to make output more readable.
-    display_path: ?[]const u8,
-    /// Start offset of the subpath inside absolute paths.
-    /// The subpath that can then be appended to the `display_path`.
+    display_prefix: ?[]const u8,
+    /// Start offset of the subpath inside the `abs` path.
+    /// The subpath that can then be appended to the `display_prefix`.
     sub_path_offset: usize,
 };
 
@@ -174,9 +173,9 @@ fn run(stdout: Stdout) !void {
     var sink = Sink.init(stdout);
 
     // start searcher threads
-    var queue_buf = try allocator.alloc(SearchWork, SEACHER_QUEUE_BUF_SIZE);
+    var queue_buf = try allocator.alloc(DisplayPath, SEACHER_QUEUE_BUF_SIZE);
     defer allocator.free(queue_buf);
-    var queue = AtomicQueue(SearchWork).init(queue_buf);
+    var queue = AtomicQueue(DisplayPath).init(queue_buf);
     var searchers = ArrayList(std.Thread).init(allocator);
     defer searchers.deinit();
     try searchers.ensureTotalCapacity(num_threads);
@@ -204,17 +203,16 @@ fn run(stdout: Stdout) !void {
     if (input_paths.items.len == 0) {
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const abs_path = try std.fs.realpath(".", &path_buf);
-        var owned_abs_path = try allocator.alloc(u8, abs_path.len);
-        @memcpy(owned_abs_path, abs_path);
+        const owned_abs_path = try allocSlice(u8, allocator, abs_path);
         const path = DisplayPath{
-            .abs_path = owned_abs_path,
-            .display_path = null,
-            .sub_path_idx = abs_path.len,
+            .abs = owned_abs_path,
+            .display_prefix = null,
+            .sub_path_offset = abs_path.len,
         };
 
         const open_options = .{ .no_follow = true };
         const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
-        stack_buf.append(WalkerEntry{
+        try stack_buf.append(WalkerEntry{
             .depth = 0,
             .data = DirIter{
                 .iter = dir.iterate(),
@@ -225,17 +223,16 @@ fn run(stdout: Stdout) !void {
         for (input_paths.items) |input_path| {
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const abs_path = try std.fs.realpath(input_path, &path_buf);
-            var owned_abs_path = try allocator.alloc(u8, abs_path.len);
-            @memcpy(owned_abs_path, abs_path);
+            const owned_abs_path = try allocSlice(u8, allocator, abs_path);
             const path = DisplayPath{
-                .abs_path = abs_path,
-                .display_path = input_path,
-                .sub_path_idx = abs_path.len,
+                .abs = owned_abs_path,
+                .display_prefix = input_path,
+                .sub_path_offset = abs_path.len,
             };
 
-            const dir_iter = getDirIterOrEnqueue(&sink, &queue, &opts, path);
+            const dir_iter = try getDirIterOrEnqueue(&sink, &queue, &opts, path);
             if (dir_iter) |d| {
-                stack_buf.append(WalkerEntry{
+                try stack_buf.append(WalkerEntry{
                     .depth = 0,
                     .data = d,
                 });
@@ -248,8 +245,7 @@ fn run(stdout: Stdout) !void {
         return;
     }
 
-    var stack = AtomicStack(DirIter).init(allocator, num_walkers);
-    defer stack.deinit();
+    var stack = AtomicStack(DirIter).init(&stack_buf, num_walkers);
     var walkers = ArrayList(std.Thread).init(allocator);
     defer walkers.deinit();
     try walkers.ensureTotalCapacity(num_threads);
@@ -301,7 +297,7 @@ fn startWalker(_ctx: WalkerContext) !void {
         const msg = ctx.stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(ctx, entry);
+                try walkPath(&ctx, &path_buf, entry);
             },
             .Stop => break,
         }
@@ -311,55 +307,60 @@ fn startWalker(_ctx: WalkerContext) !void {
 fn walkPath(
     ctx: *WalkerContext,
     path_buf: *ArrayList(u8),
-    _entry: WalkerEntry,
+    _dir_entry: WalkerEntry,
 ) (GrepError || ResourceError)!void {
     const opts = ctx.opts;
-    
-    var entry = _entry;
-    var dir_path = entry.data.path;
+
+    var dir_entry = _dir_entry;
+    var dir_path = dir_entry.data.path;
 
     path_buf.clearRetainingCapacity();
-    path_buf.appendSlice(dir_path.abs_path);
-    if (dir_path.abs_path.len > 0 and dir_path.abs_path[dir_path.abs_path.len - 1] != std.fs.path.sep) {
-        path_buf.append(std.fs.path.sep);
+    try path_buf.appendSlice(dir_path.abs);
+    if (dir_path.abs.len > 0 and dir_path.abs[dir_path.abs.len - 1] != std.fs.path.sep) {
+        try path_buf.append(std.fs.path.sep);
     }
     var dirname_len = path_buf.items.len;
 
     while (true) {
-        const e = entry.data.iter.next() orelse {
-            try ctx.allocator.free(dir_path.abs_path);
-            entry.data.iter.dir.close();
+        const e = try dir_entry.data.iter.next() orelse {
+            ctx.allocator.free(dir_path.abs);
+            dir_entry.data.iter.dir.close();
             break;
         };
 
         // skip hidden files
         if (!opts.hidden and e.name[0] == '.') {
             if (opts.debug) {
-                try ctx.sink.print("Not searching hidden path: \"{s}\"\n", .{ctx.name_buf.items});
+                try ctx.sink.writeAll("Not searching hidden path: \"");
+                try printPath(ctx.sink, &DisplayPath{
+                    .abs = path_buf.items,
+                    .display_prefix = dir_path.display_prefix,
+                    .sub_path_offset = dir_path.sub_path_offset,
+                });
+                try ctx.sink.writeAll("\"\n");
             }
             continue;
         }
 
         path_buf.shrinkRetainingCapacity(dirname_len);
-        path_buf.appendSlice(e.name);
+        try path_buf.appendSlice(e.name);
 
         switch (e.kind) {
             .file => {
-                enqueueWork(ctx, path_buf.items, dir_path.display_path, dir_path.sub_path_idx);
+                try enqueueWork(ctx, path_buf.items, dir_path.display_prefix, dir_path.sub_path_offset);
             },
             .directory => {
                 const open_options = .{ .no_follow = true };
-                var abs_path = try ctx.allocator.alloc(u8, dir_path.abs_path.len);
-                @memcpy(abs_path, path_buf.items);
+                const abs_path = try allocSlice(u8, ctx.allocator, path_buf.items);
 
                 const sub_dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
                 const sub_dir_path = DisplayPath{
-                    .abs_path = abs_path,
-                    .display_path = dir_path.display_path,
+                    .abs = abs_path,
+                    .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
                 const sub_dir_entry = WalkerEntry{
-                    .depth = entry.depth + 1,
+                    .depth = dir_entry.depth + 1,
                     .data = DirIter{
                         .iter = sub_dir.iterate(),
                         .path = sub_dir_path,
@@ -367,22 +368,31 @@ fn walkPath(
                 };
 
                 // put back dir iter on the stack, and traverse depth first
-                ctx.stack.push(entry);
+                try ctx.stack.push(dir_entry);
 
-                path_buf.append(std.fs.path.sep);
+                try path_buf.append(std.fs.path.sep);
                 dirname_len = path_buf.items.len;
-                entry = sub_dir_entry;
+                dir_entry = sub_dir_entry;
                 dir_path = sub_dir_entry.data.path;
             },
             .sym_link => {
                 if (opts.follow_links) {
-                    var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                    const link = try std.fs.readLinkAbsolute(dir_path.abs_path, &link_buf);
-                    _ = link;
-                    // TODO: search link
+                    const link_file_path = DisplayPath{
+                        .abs = path_buf.items,
+                        .display_prefix = dir_path.display_prefix,
+                        .sub_path_offset = dir_path.sub_path_offset,
+                    };
+                    const dir_iter = try walkLink(ctx.sink, ctx.queue, ctx.opts, link_file_path);
+                    if (dir_iter) |d| {
+                        const link_dir_entry = WalkerEntry{
+                            .depth = dir_entry.depth + 1,
+                            .data = d,
+                        };
+                        try ctx.stack.push(link_dir_entry);
+                    }
                 } else if (opts.debug) {
                     try ctx.sink.writeAll("Not following link: \"");
-                    printPath(ctx.sink, &dir_path);
+                    try printPath(ctx.sink, &dir_path);
                     try ctx.sink.writeAll("\"\n");
                 }
             },
@@ -392,9 +402,46 @@ fn walkPath(
     }
 }
 
-inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(SearchWork), opts: *const UserOptions, path: DisplayPath) !?DirIter {
+fn walkLink(
+    sink: *Sink,
+    queue: *AtomicQueue(DisplayPath),
+    opts: *const UserOptions,
+    link_file_path: DisplayPath,
+) (GrepError || ResourceError)!?DirIter {
+    var rel_link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const rel_link_path = try std.fs.readLinkAbsolute(link_file_path.abs, &rel_link_buf);
+
+    // realpath needs to know the location of the link file to correctly canonicalize `.` or `..`.
+    const dir_end = indexOfScalarPosRev(u8, link_file_path.abs, link_file_path.abs.len, '/') orelse std.debug.panic("Couldn't find dir of \"{s}\"\n", .{link_file_path.abs});
+    const dir_path = link_file_path.abs[0..dir_end];
+    const open_options = .{ .no_follow = true };
+    const dir = try std.fs.openDirAbsolute(dir_path, open_options);
+
+    var abs_link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const abs_link_path = try dir.realpath(rel_link_path, &abs_link_buf);
+
+    const link_path = DisplayPath{
+        .abs = abs_link_path,
+        .display_prefix = null,
+        .sub_path_offset = 0,
+    };
+
+    if (symlinkLoops(link_file_path.abs, abs_link_path)) {
+        try sink.writeAll("Loop detected \"");
+        try printPath(sink, &link_file_path);
+        try sink.writeAll("\" points to ancestor \"");
+        try printPath(sink, &link_path);
+        try sink.writeAll("\"\n");
+
+        return error.Loop;
+    }
+
+    return getDirIterOrEnqueue(sink, queue, opts, link_path);
+}
+
+inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(DisplayPath), opts: *const UserOptions, path: DisplayPath) !?DirIter {
     const open_flags = .{ .mode = .read_only };
-    const file = try std.fs.openFileAbsolute(path.abs_path, open_flags);
+    const file = try std.fs.openFileAbsolute(path.abs, open_flags);
 
     const stat = try file.stat();
     switch (stat.kind) {
@@ -405,7 +452,7 @@ inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(SearchWork), opts
         .directory => {
             file.close();
             const open_options = .{ .no_follow = true };
-            const dir = try std.fs.openIterableDirAbsolute(path.abs_path, open_options);
+            const dir = try std.fs.openIterableDirAbsolute(path.abs, open_options);
             return DirIter{
                 .iter = dir.iterate(),
                 .path = path,
@@ -414,13 +461,10 @@ inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(SearchWork), opts
         .sym_link => {
             file.close();
             if (opts.follow_links) {
-                var link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const link = try std.fs.readLinkAbsolute(path.abs_path, &link_buf);
-                _ = link;
-                // TODO: search link
+                return walkLink(sink, queue, opts, path);
             } else if (opts.debug) {
                 try sink.writeAll("Not following link: \"");
-                printPath(sink, &path);
+                try printPath(sink, &path);
                 try sink.writeAll("\"\n");
             }
         },
@@ -433,51 +477,17 @@ inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(SearchWork), opts
     return null;
 }
 
-/// `link_path` is the dereferenced link.
-fn searchLink(
-    ctx: *WalkerContext,
-    opts: *const UserOptions,
-    abs_search_path: []const u8,
-    sub_search_path: []const u8,
-    link_path: []const u8,
-) (GrepError || ResourceError)!void {
-    // canonicalize path
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const abs_link_path = try std.fs.realpath(link_path, &path_buf);
-
-    if (symlinkLoops(abs_search_path, sub_search_path, abs_link_path)) {
-        try ctx.sink.print("Loop detected \"{s}\" points to ancetor \"{s}\"\n", .{ sub_search_path, link_path });
-        return error.Loop;
-    }
-
-    // the stack of searched directories
-    var dir_stack = ArrayList(WalkerEntry).init(ctx.allocator);
-    defer dir_stack.deinit();
-    var name_buf = ArrayList(u8).init(ctx.allocator);
-    defer name_buf.deinit();
-    var new_ctx = WalkerContext{
-        .allocator = ctx.allocator,
-        .sink = ctx.sink,
-        .queue = ctx.queue,
-        .dir_stack = &dir_stack,
-        .name_buf = &name_buf,
-    };
-
-    try walkPath(&new_ctx, opts, null, abs_link_path);
-}
-
-/// Send work through a queue to a worker in `ctx.thread_pool`.
+/// Send work through a queue to a worker in the thread pool.
 /// `path` is copied, and the responsibility of closing `file` is handed over.
-fn enqueueWork(ctx: *WalkerContext, abs_path: []const u8, display_path: ?[]const u8, sub_path_idx: usize) !void {
-    const owned_abs_path = try ctx.allocator.alloc(u8, abs_path.len);
-    @memcpy(owned_abs_path, abs_path);
+fn enqueueWork(ctx: *WalkerContext, abs_path: []const u8, display_prefix: ?[]const u8, sub_path_offset: usize) !void {
+    const owned_abs_path = try allocSlice(u8, ctx.allocator, abs_path);
 
-    const work = SearchWork{
-        .abs_path = owned_abs_path,
-        .display_path = display_path,
-        .sub_path_idx = sub_path_idx,
+    const path = DisplayPath{
+        .abs = owned_abs_path,
+        .display_prefix = display_prefix,
+        .sub_path_offset = sub_path_offset,
     };
-    ctx.queue.append(work);
+    ctx.queue.append(path);
 }
 
 fn startSearcher(_ctx: SearcherContext) !void {
@@ -494,9 +504,9 @@ fn startSearcher(_ctx: SearcherContext) !void {
     while (true) {
         var msg = ctx.queue.get();
         switch (msg) {
-            .Some => |work| {
-                defer ctx.allocator.free(work.abs_path);
-                try searchFile(&ctx, text_buf, &line_buf, &work);
+            .Some => |path| {
+                defer ctx.allocator.free(path.abs);
+                try searchFile(&ctx, text_buf, &line_buf, &path);
             },
             .Stop => break,
         }
@@ -507,10 +517,10 @@ fn searchFile(
     ctx: *SearcherContext,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
-    work: *const SearchWork,
+    path: *const DisplayPath,
 ) !void {
     const open_flags = .{ .mode = .read_only };
-    const file = try std.fs.openFileAbsolute(work.abs_path, open_flags);
+    const file = try std.fs.openFileAbsolute(path.abs, open_flags);
     defer file.close();
 
     const opts = ctx.opts;
@@ -594,7 +604,7 @@ fn searchFile(
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        try printLinePrefix(ctx.sink, opts, work, line_num, '-');
+                        try printLinePrefix(ctx.sink, opts, path, line_num, '-');
                         try ctx.sink.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
@@ -612,7 +622,7 @@ fn searchFile(
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[35m");
                 }
-                try printPath(ctx.sink, work);
+                try printPath(ctx.sink, path);
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[0m");
                 }
@@ -657,14 +667,14 @@ fn searchFile(
                         i -= 1;
                         const cline_num = line_num - i - 1;
                         const cline = line_buf.items[i];
-                        try printLinePrefix(ctx.sink, opts, work, cline_num, '-');
+                        try printLinePrefix(ctx.sink, opts, path, cline_num, '-');
                         try ctx.sink.writeAll(cline);
                     }
 
                     line_buf.clearRetainingCapacity();
                 }
 
-                try printLinePrefix(ctx.sink, opts, work, line_num, ':');
+                try printLinePrefix(ctx.sink, opts, path, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -713,7 +723,7 @@ fn searchFile(
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-                try printLinePrefix(ctx.sink, opts, work, line_num, '-');
+                try printLinePrefix(ctx.sink, opts, path, line_num, '-');
                 try ctx.sink.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
@@ -834,16 +844,16 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const SearchWork, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: *const DisplayPath, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
             try sink.writeAll("\x1b[35m");
         }
-        if (work.display_path) |p| {
+        if (path.display_prefix) |p| {
             try sink.writeAll(p);
         }
-        try sink.writeAll(work.abs_path[work.sub_path_idx..]);
+        try sink.writeAll(path.abs[path.sub_path_offset..]);
         if (opts.color) {
             try sink.writeAll("\x1b[0m");
         }
@@ -861,9 +871,9 @@ inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, work: *const Se
     try sink.writeByte(sep);
 }
 
-inline fn printPath(sink: *Sink, work: *const DisplayPath) !void {
-    const sub_path = work.abs_path[work.sub_path_idx..];
-    if (work.display_path) |p| {
+inline fn printPath(sink: *Sink, path: *const DisplayPath) !void {
+    const sub_path = path.abs[path.sub_path_offset..];
+    if (path.display_prefix) |p| {
         try sink.writeAll(p);
         if (sub_path.len > 0 and p.len > 0 and p[p.len - 1] != std.fs.path.sep) {
             try sink.writeByte(std.fs.path.sep);
@@ -872,8 +882,8 @@ inline fn printPath(sink: *Sink, work: *const DisplayPath) !void {
     try sink.writeAll(sub_path);
 }
 
-// Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
-// Returns the end of the line.
+/// Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
+/// Returns the end of the line.
 inline fn printRemainder(sink: *Sink, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
     const lml_start = textIndex(text, lml);
     const lml_end = lml_start + lml.len;
@@ -886,34 +896,22 @@ inline fn printRemainder(sink: *Sink, chunk_buf: *ChunkBuffer, text: []const u8,
     return @min(lml_end + 1, text.len);
 }
 
-fn symlinkLoops(
-    abs_search_path: []const u8,
-    sub_search_path: []const u8,
-    abs_link_path: []const u8,
-) bool {
-    // loop outside search directory
-    if (std.mem.startsWith(u8, abs_search_path, abs_link_path)) {
-        return true;
-    }
+inline fn allocSlice(comptime T: type, allocator: Allocator, slice: []const T) ![]T {
+    var buf = try allocator.alloc(T, slice.len);
+    @memcpy(buf, slice);
+    return buf;
+}
 
-    // loop inside search directory
-    if (std.mem.startsWith(u8, abs_link_path, abs_search_path)) {
-        if (abs_search_path.len == abs_link_path.len) {
-            return true;
-        }
-
-        const sub_link_path = abs_link_path[abs_search_path.len + 1 ..];
-        if (std.mem.startsWith(u8, sub_search_path, sub_link_path)) {
-            return true;
-        }
-    }
-
-    return false;
+/// Check if the symlink contains a loop. `abs_search_path` is where the
+/// symlink lives, and `abs_link_path` is where it points to.
+fn symlinkLoops(abs_search_path: []const u8, abs_link_path: []const u8) bool {
+    return std.mem.startsWith(u8, abs_search_path, abs_link_path);
 }
 
 test "symlink loop detection" {
-    try std.testing.expect(symlinkLoops("/a/b/c", "d/e/f", "/a"));
-    try std.testing.expect(symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d"));
-    try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/o"));
-    try std.testing.expect(!symlinkLoops("/a/b/c", "d/e/f", "/a/b/c/d/o"));
+    try std.testing.expect(symlinkLoops("/a/b/c/d/e/f", "/a"));
+    try std.testing.expect(symlinkLoops("/a/b/c/d/e/f", "/a/b/c/d"));
+    try std.testing.expect(!symlinkLoops("/a/b/c/d/e/f", "/a/b/o"));
+    try std.testing.expect(!symlinkLoops("/a/b/c/d/e/f", "/a/b/c/d/o"));
+    try std.testing.expect(!symlinkLoops("/a/b/c/d/e/f", "/o"));
 }
