@@ -893,7 +893,7 @@ inline fn printPath(sink: *SinkBuf, path: *const DisplayPath) !void {
     const sub_path = path.abs[path.sub_path_offset..];
     if (path.display_prefix) |p| {
         try sink.writeAll(p);
-        if (sub_path.len > 0 and p.len > 0 and p[p.len - 1] != std.fs.path.sep) {
+        if (sub_path.len > 0 and sub_path[0] != std.fs.path.sep and p.len > 0 and p[p.len - 1] != std.fs.path.sep) {
             try sink.writeByte(std.fs.path.sep);
         }
     }
