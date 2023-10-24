@@ -167,7 +167,7 @@ fn run(stdout: Stdout) !void {
             try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
         }
     }
-    const num_walkers = @max(2, num_threads / 3);
+    const num_walkers = @max(2, num_threads / 4);
     const num_searchers = num_threads - num_walkers;
 
     // synchronize writes to stdout from here on
