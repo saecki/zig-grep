@@ -30,8 +30,6 @@ pub fn parseArgs(stdout: Stdout, opts: *UserOptions, input_paths: *ArrayList([]c
                 opts.ignore_case = true;
             } else if (std.mem.eql(u8, long_arg, "debug")) {
                 opts.debug = true;
-            } else if (std.mem.eql(u8, long_arg, "no-flush")) {
-                opts.no_flush = true;
             } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
                 opts.unicode = false;
             } else if (std.mem.eql(u8, long_arg, "after-context")) {

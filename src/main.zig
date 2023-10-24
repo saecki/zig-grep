@@ -16,8 +16,10 @@ const AtomicQueue = atomic.AtomicQueue;
 const AtomicStack = atomic.AtomicStack;
 const WalkerEntry = AtomicStack(DirIter).Entry;
 const Sink = atomic.Sink;
+const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 19;
+const SINK_BUF_SIZE = 1 << 12;
 const SEACHER_QUEUE_BUF_SIZE = 1 << 8;
 
 pub const UserOptions = struct {
@@ -29,13 +31,12 @@ pub const UserOptions = struct {
     follow_links: bool = false,
     hidden: bool = false,
     debug: bool = false,
-    no_flush: bool = false,
     unicode: bool = true,
 };
 
 const WalkerContext = struct {
     allocator: Allocator,
-    sink: *Sink,
+    sink: SinkBuf,
     stack: *AtomicStack(DirIter),
     queue: *AtomicQueue(DisplayPath),
     opts: *const UserOptions,
@@ -49,7 +50,7 @@ const DirIter = struct {
 /// The context inside the worker thread
 const SearcherContext = struct {
     allocator: Allocator,
-    sink: *Sink,
+    sink: SinkBuf,
     queue: *AtomicQueue(DisplayPath),
     regex: *c.rure,
     opts: *const UserOptions,
@@ -59,7 +60,7 @@ const SearcherContext = struct {
 const DisplayPath = struct {
     /// Has to be freed by the worker.
     abs: []const u8,
-    /// A path that the user provided, use this instead of absolute paths to make output more readable.
+    /// A path that the user provided, use this as a prefix to make output more readable.
     display_prefix: ?[]const u8,
     /// Start offset of the subpath inside the `abs` path.
     /// The subpath that can then be appended to the `display_prefix`.
@@ -166,7 +167,7 @@ fn run(stdout: Stdout) !void {
             try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
         }
     }
-    const num_walkers = @max(2, num_threads / 4);
+    const num_walkers = @max(2, num_threads / 3);
     const num_searchers = num_threads - num_walkers;
 
     // synchronize writes to stdout from here on
@@ -180,9 +181,11 @@ fn run(stdout: Stdout) !void {
     defer searchers.deinit();
     try searchers.ensureTotalCapacity(num_threads);
     for (0..num_searchers) |_| {
+        const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
+        const sink_buf = SinkBuf.init(&sink, buf);
         const ctx = SearcherContext{
             .allocator = allocator,
-            .sink = &sink,
+            .sink = sink_buf,
             .queue = &queue,
             .regex = regex,
             .opts = &opts,
@@ -220,6 +223,10 @@ fn run(stdout: Stdout) !void {
             },
         });
     } else {
+        const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
+        defer allocator.free(buf);
+        var sink_buf = SinkBuf.init(&sink, buf);
+
         for (input_paths.items) |input_path| {
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const abs_path = try std.fs.realpath(input_path, &path_buf);
@@ -230,7 +237,7 @@ fn run(stdout: Stdout) !void {
                 .sub_path_offset = abs_path.len,
             };
 
-            const dir_iter = try getDirIterOrEnqueue(&sink, &queue, &opts, path);
+            const dir_iter = try getDirIterOrEnqueue(&sink_buf, &queue, &opts, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
                     .depth = 0,
@@ -250,9 +257,11 @@ fn run(stdout: Stdout) !void {
     defer walkers.deinit();
     try walkers.ensureTotalCapacity(num_threads);
     for (0..num_walkers) |_| {
+        const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
+        const sink_buf = SinkBuf.init(&sink, buf);
         const ctx = WalkerContext{
             .allocator = allocator,
-            .sink = &sink,
+            .sink = sink_buf,
             .stack = &stack,
             .queue = &queue,
             .opts = &opts,
@@ -302,6 +311,8 @@ fn startWalker(_ctx: WalkerContext) !void {
             .Stop => break,
         }
     }
+
+    ctx.allocator.free(ctx.sink.buf);
 }
 
 fn walkPath(
@@ -332,12 +343,13 @@ fn walkPath(
         if (!opts.hidden and e.name[0] == '.') {
             if (opts.debug) {
                 try ctx.sink.writeAll("Not searching hidden path: \"");
-                try printPath(ctx.sink, &DisplayPath{
+                try printPath(&ctx.sink, &DisplayPath{
                     .abs = path_buf.items,
                     .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
                 });
                 try ctx.sink.writeAll("\"\n");
+                try ctx.sink.end();
             }
             continue;
         }
@@ -382,7 +394,7 @@ fn walkPath(
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
                     };
-                    const dir_iter = try walkLink(ctx.sink, ctx.queue, ctx.opts, link_file_path);
+                    const dir_iter = try walkLink(&ctx.sink, ctx.queue, ctx.opts, link_file_path);
                     if (dir_iter) |d| {
                         const link_dir_entry = WalkerEntry{
                             .depth = dir_entry.depth + 1,
@@ -392,8 +404,9 @@ fn walkPath(
                     }
                 } else if (opts.debug) {
                     try ctx.sink.writeAll("Not following link: \"");
-                    try printPath(ctx.sink, &dir_path);
+                    try printPath(&ctx.sink, &dir_path);
                     try ctx.sink.writeAll("\"\n");
+                    try ctx.sink.end();
                 }
             },
             // ignore
@@ -403,7 +416,7 @@ fn walkPath(
 }
 
 fn walkLink(
-    sink: *Sink,
+    sink: *SinkBuf,
     queue: *AtomicQueue(DisplayPath),
     opts: *const UserOptions,
     link_file_path: DisplayPath,
@@ -432,6 +445,7 @@ fn walkLink(
         try sink.writeAll("\" points to ancestor \"");
         try printPath(sink, &link_path);
         try sink.writeAll("\"\n");
+        try sink.end();
 
         return error.Loop;
     }
@@ -439,7 +453,7 @@ fn walkLink(
     return getDirIterOrEnqueue(sink, queue, opts, link_path);
 }
 
-inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(DisplayPath), opts: *const UserOptions, path: DisplayPath) !?DirIter {
+inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), opts: *const UserOptions, path: DisplayPath) !?DirIter {
     const open_flags = .{ .mode = .read_only };
     const file = try std.fs.openFileAbsolute(path.abs, open_flags);
 
@@ -466,6 +480,7 @@ inline fn getDirIterOrEnqueue(sink: *Sink, queue: *AtomicQueue(DisplayPath), opt
                 try sink.writeAll("Not following link: \"");
                 try printPath(sink, &path);
                 try sink.writeAll("\"\n");
+                try sink.end();
             }
         },
         // ignore
@@ -511,6 +526,8 @@ fn startSearcher(_ctx: SearcherContext) !void {
             .Stop => break,
         }
     }
+
+    ctx.allocator.free(ctx.sink.buf);
 }
 
 fn searchFile(
@@ -574,7 +591,7 @@ fn searchFile(
                         if (!single_line_found) {
                             if (last_matched_line) |lml| {
                                 if (!printed_remainder) {
-                                    _ = try printRemainder(ctx.sink, &chunk_buf, text, lml);
+                                    _ = try printRemainder(&ctx.sink, &chunk_buf, text, lml);
                                     last_printed_line_num = last_matched_line_num;
                                     printed_remainder = true;
                                 }
@@ -593,7 +610,7 @@ fn searchFile(
                 if (!printed_remainder) {
                     // remainder of last line
                     if (last_matched_line) |lml| {
-                        chunk_buf.pos = try printRemainder(ctx.sink, &chunk_buf, text, lml);
+                        chunk_buf.pos = try printRemainder(&ctx.sink, &chunk_buf, text, lml);
                         last_printed_line_num = last_matched_line_num;
                         printed_remainder = true;
                     }
@@ -604,7 +621,7 @@ fn searchFile(
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                        try printLinePrefix(&ctx.sink, opts, path, line_num, '-');
                         try ctx.sink.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
@@ -622,7 +639,7 @@ fn searchFile(
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[35m");
                 }
-                try printPath(ctx.sink, path);
+                try printPath(&ctx.sink, path);
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[0m");
                 }
@@ -667,14 +684,14 @@ fn searchFile(
                         i -= 1;
                         const cline_num = line_num - i - 1;
                         const cline = line_buf.items[i];
-                        try printLinePrefix(ctx.sink, opts, path, cline_num, '-');
+                        try printLinePrefix(&ctx.sink, opts, path, cline_num, '-');
                         try ctx.sink.writeAll(cline);
                     }
 
                     line_buf.clearRetainingCapacity();
                 }
 
-                try printLinePrefix(ctx.sink, opts, path, line_num, ':');
+                try printLinePrefix(&ctx.sink, opts, path, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -704,7 +721,7 @@ fn searchFile(
         if (last_matched_line) |lml| {
             // remainder of last line
             if (!printed_remainder) {
-                chunk_buf.pos = try printRemainder(ctx.sink, &chunk_buf, text, lml);
+                chunk_buf.pos = try printRemainder(&ctx.sink, &chunk_buf, text, lml);
                 last_printed_line_num = line_num;
                 _ = line_iter.next();
                 line_num += 1;
@@ -723,7 +740,7 @@ fn searchFile(
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-                try printLinePrefix(ctx.sink, opts, path, line_num, '-');
+                try printLinePrefix(&ctx.sink, opts, path, line_num, '-');
                 try ctx.sink.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
@@ -778,10 +795,11 @@ fn searchFile(
         if (opts.heading) {
             try ctx.sink.writeByte('\n');
         }
-        if (!opts.no_flush) {
-            try ctx.sink.flush();
-        }
     }
+
+    // TODO: consider adding something like tryEnd() to SinkBuf, and if this buffer has
+    // enough capacity left, and the Sink is currently blocked. Continue searching another file
+    try ctx.sink.end();
 }
 
 const ChunkBuffer = struct {
@@ -844,7 +862,7 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: *const DisplayPath, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *SinkBuf, opts: *const UserOptions, path: *const DisplayPath, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
@@ -871,7 +889,7 @@ inline fn printLinePrefix(sink: *Sink, opts: *const UserOptions, path: *const Di
     try sink.writeByte(sep);
 }
 
-inline fn printPath(sink: *Sink, path: *const DisplayPath) !void {
+inline fn printPath(sink: *SinkBuf, path: *const DisplayPath) !void {
     const sub_path = path.abs[path.sub_path_offset..];
     if (path.display_prefix) |p| {
         try sink.writeAll(p);
@@ -884,7 +902,7 @@ inline fn printPath(sink: *Sink, path: *const DisplayPath) !void {
 
 /// Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
 /// Returns the end of the line.
-inline fn printRemainder(sink: *Sink, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
+inline fn printRemainder(sink: *SinkBuf, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
     const lml_start = textIndex(text, lml);
     const lml_end = lml_start + lml.len;
 
