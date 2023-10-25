@@ -344,7 +344,7 @@ pub const SinkBuf = struct {
 
     /// Write remaining content, if any and end exclusive transaction.
     pub fn end(self: *Self) !void {
-        if (self.pos == 0) {
+        if (self.exclusive_writer == null and self.pos == 0) {
             return;
         }
 
