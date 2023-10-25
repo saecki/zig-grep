@@ -123,7 +123,8 @@ pub fn AtomicQueue(comptime T: type) type {
 
             const new_state: State = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
             self.state.store(new_state, std.atomic.Ordering.SeqCst);
-            Futex.wake(@ptrCast(&self.state), 1);
+            const max_waiters: u32 = if (self.len == 0 and self.stop_signal) std.math.maxInt(u32) else 1;
+            Futex.wake(@ptrCast(&self.state), max_waiters);
 
             return Message{ .Some = data };
         }
