@@ -868,10 +868,7 @@ inline fn printLinePrefix(sink: *SinkBuf, opts: *const UserOptions, path: *const
         if (opts.color) {
             try sink.writeAll("\x1b[35m");
         }
-        if (path.display_prefix) |p| {
-            try sink.writeAll(p);
-        }
-        try sink.writeAll(path.abs[path.sub_path_offset..]);
+        try printPath(sink, path);
         if (opts.color) {
             try sink.writeAll("\x1b[0m");
         }
