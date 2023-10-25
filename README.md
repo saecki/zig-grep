@@ -38,6 +38,7 @@
     - async not available in `0.11` self-hosted compiler
 - unclear crash messages, even in debug mode
     - just memory addresses
+    - this is a bug when linking libc
 
 ## Process
 1. Line by line matching
