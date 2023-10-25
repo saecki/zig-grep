@@ -35,6 +35,7 @@
     - exclusive ranges for slicing: my_slice[0..2]
 - somewhat immature ecosystem
     - missing regex library
+    - async not available in `0.11` self-hosted compiler
 - unclear crash messages, even in debug mode
     - just memory addresses
 
