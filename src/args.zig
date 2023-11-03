@@ -115,7 +115,6 @@ pub fn printHelp(stdout: Stdout) !void {
         \\ -h,--hidden                  search hidden files and folders
         \\    --help                    print this message
         \\ -i,--ignore-case             search case insensitive
-        \\    --no-flush                don't flush output after every file
         \\    --no-heading              prints a single line including the filename
         \\                              for each match, instead of grouping matches
         \\                              by file
