@@ -581,9 +581,12 @@ fn searchFile(
                 const line_start = textIndex(text, line);
                 const line_end = line_start + line.len;
                 if (line_start <= match.start and match.start <= line_end) {
-                    // Some regex pattern may match newlines, which shouldn't be supported by default.
-                    // If the match spans multiple lines, check if the first line would be enough to match.
-                    if (match.end > line_end) {
+                    if (match.end == line_end + 1 and text[line_end] == '\n') {
+                        // don't include newlines in match text
+                        match.end -= 1;
+                    } else if (match.end > line_end) {
+                        // Some regex pattern may match newlines, which shouldn't be supported by default.
+                        // If the match spans multiple lines, check if the first line would be enough to match.
                         const search_start = match.start;
                         const search_end = @min(line_end + 1, text.len);
                         const single_line_found = c.rure_find(ctx.regex, @ptrCast(text), search_end, search_start, &match);
@@ -599,6 +602,11 @@ fn searchFile(
 
                             chunk_buf.pos = search_end;
                             continue :search;
+                        }
+
+                        if (match.end == line_end + 1 and text[line_end] == '\n') {
+                            // don't include newlines in match text
+                            match.end -= 1;
                         }
                     }
 
