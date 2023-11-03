@@ -322,7 +322,7 @@ pub const SinkBuf = struct {
         }
         if (slice.len > self.buf.len) {
             // no need to buffer slice is larger than our buffer anyway.
-            var w = self.ensure_exclusive();
+            var w = self.ensureExclusive();
             try w.writeAll(slice);
         } else {
             @memcpy(self.buf[self.pos .. self.pos + slice.len], slice);
@@ -338,8 +338,8 @@ pub const SinkBuf = struct {
 
     /// Force exclusive transaction to start and write content.
     pub fn flush(self: *Self) !void {
-        var w = self.ensure_exclusive();
-        try self.flush_internal(w);
+        var w = self.ensureExclusive();
+        try self.flushInternal(w);
     }
 
     /// Write remaining content, if any and end exclusive transaction.
@@ -348,12 +348,12 @@ pub const SinkBuf = struct {
             return;
         }
 
-        var w = self.ensure_exclusive();
-        try self.flush_internal(w);
+        var w = self.ensureExclusive();
+        try self.flushInternal(w);
         self.sink.endExclusive(&self.exclusive_writer);
     }
 
-    inline fn ensure_exclusive(self: *Self) *File.Writer {
+    inline fn ensureExclusive(self: *Self) *File.Writer {
         if (self.exclusive_writer) |w| {
             return w;
         } else {
@@ -363,7 +363,7 @@ pub const SinkBuf = struct {
         }
     }
 
-    inline fn flush_internal(self: *Self, exclusive_writer: *File.Writer) !void {
+    inline fn flushInternal(self: *Self, exclusive_writer: *File.Writer) !void {
         try exclusive_writer.writeAll(self.buf[0..self.pos]);
         self.pos = 0;
     }

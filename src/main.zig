@@ -117,12 +117,12 @@ const ResourceError = error{
 };
 
 pub fn main() void {
-    wrap_run() catch {
+    wrapRun() catch {
         std.process.exit(1);
     };
 }
 
-fn wrap_run() !void {
+fn wrapRun() !void {
     var stdout_fd = std.io.getStdOut();
     defer stdout_fd.close();
     const stdout = stdout_fd.writer();
