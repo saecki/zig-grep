@@ -805,8 +805,6 @@ fn searchFile(
         }
     }
 
-    // TODO: consider adding something like tryEnd() to SinkBuf, and if this buffer has
-    // enough capacity left, and the Sink is currently blocked. Continue searching another file
     try ctx.sink.end();
 }
 
