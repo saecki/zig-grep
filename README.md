@@ -41,6 +41,8 @@
     - this is a bug when linking libc
 
 ## Process
+
+### 1. Single threaded optimization
 1. Line by line matching
 2. Whole text matching for performance
     - to avoid allocating iterator for every line
@@ -54,3 +56,11 @@
       overhead on unicode word-character patterns
     - avoided to some extend by searching the whole text buffer
       instead of just line by line slices
+
+### 2. Parallelization
+- Two worker thread pools
+    - One for walking the file tree
+    - One for searching files
+- Walking the filetree uses a shared stack for depth first searching
+- A shared queue is used to pass to be searched files
+- A shared sink synchronizes writing to stdout
