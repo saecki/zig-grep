@@ -5,6 +5,47 @@ const Stdout = std.fs.File.Writer;
 const main = @import("main.zig");
 const UserOptions = main.UserOptions;
 
+const UserArg = struct {
+    short: ?u8,
+    long: []const u8,
+    kind: UserArgKind,
+};
+
+const UserArgKind = union(enum) {
+    value: UserArgValue,
+    flag: UserArgFlag,
+};
+
+const UserArgValue = enum {
+    Context,
+    AfterContext,
+    BeforeContext,
+};
+const UserArgFlag = enum {
+    Hidden,
+    FollowLinks,
+    Color,
+    NoHeading,
+    IgnoreCase,
+    Debug,
+    NoUnicode,
+    Help,
+};
+
+const USER_ARGS = [_]UserArg{
+    .{ .short = 'C', .long = "context", .kind = .{ .value = .Context } },
+    .{ .short = 'A', .long = "after-context", .kind = .{ .value = .AfterContext } },
+    .{ .short = 'B', .long = "before-context", .kind = .{ .value = .BeforeContext } },
+    .{ .short = 'h', .long = "hidden", .kind = .{ .flag = .Hidden } },
+    .{ .short = 'f', .long = "follow-links", .kind = .{ .flag = .FollowLinks } },
+    .{ .short = 'c', .long = "color", .kind = .{ .flag = .Color } },
+    .{ .short = null, .long = "no-heading", .kind = .{ .flag = .NoHeading } },
+    .{ .short = 'i', .long = "ignore-case", .kind = .{ .flag = .IgnoreCase } },
+    .{ .short = 'd', .long = "debug", .kind = .{ .flag = .Debug } },
+    .{ .short = null, .long = "no-unicode", .kind = .{ .flag = .NoUnicode } },
+    .{ .short = null, .long = "help", .kind = .{ .flag = .Help } },
+};
+
 // Parses args into `opts` and `input_paths`. If the --help option was given a
 // message is printed and null is returned. If the args were parsed successfully
 // the *required* pattern is returned.
@@ -15,72 +56,62 @@ pub fn parseArgs(stdout: Stdout, opts: *UserOptions, input_paths: *ArrayList([]c
     _ = args.next();
 
     var input_pattern: ?[]const u8 = null;
-    while (args.next()) |arg| {
+    parse: while (args.next()) |arg| {
         if (std.mem.startsWith(u8, arg, "--")) {
-            const long_arg = arg[2..];
-            if (std.mem.eql(u8, long_arg, "hidden")) {
-                opts.hidden = true;
-            } else if (std.mem.eql(u8, long_arg, "follow-links")) {
-                opts.follow_links = true;
-            } else if (std.mem.eql(u8, long_arg, "color")) {
-                opts.color = true;
-            } else if (std.mem.eql(u8, long_arg, "no-heading")) {
-                opts.heading = false;
-            } else if (std.mem.eql(u8, long_arg, "ignore-case")) {
-                opts.ignore_case = true;
-            } else if (std.mem.eql(u8, long_arg, "debug")) {
-                opts.debug = true;
-            } else if (std.mem.eql(u8, long_arg, "no-unicode")) {
-                opts.unicode = false;
-            } else if (std.mem.eql(u8, long_arg, "after-context")) {
-                opts.after_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                opts.before_context = try expectNum(stdout, &args, long_arg);
-            } else if (std.mem.eql(u8, long_arg, "before-context")) {
-                const n = try expectNum(stdout, &args, long_arg);
-                opts.before_context = n;
-                opts.after_context = n;
-            } else if (std.mem.eql(u8, long_arg, "help")) {
-                try printHelp(stdout);
-                return null;
-            } else {
-                try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
-                return error.Input;
+            var long_arg: []const u8 = arg[2..];
+            var value: ?[]const u8 = null;
+            if (std.mem.indexOfScalar(u8, long_arg, '=')) |pos| {
+                value = long_arg[pos + 1 ..];
+                long_arg = long_arg[0..pos];
             }
+
+            for (USER_ARGS) |user_arg| {
+                if (std.mem.eql(u8, user_arg.long, long_arg)) {
+                    if (try parseArg(stdout, opts, &args, user_arg, long_arg, value, true)) {
+                        return null;
+                    }
+
+                    continue :parse;
+                }
+            }
+
+            try stdout.print("Unknown option \"{s}\"\n", .{long_arg});
+            return error.Input;
         } else if (std.mem.startsWith(u8, arg, "-")) {
             const short_args = arg[1..];
-            for (short_args, 0..) |a, i| {
-                const char_len = utf8_char_len(a);
+            short_args: for (short_args, 0..) |short_arg, i| {
+                const char_len = utf8_char_len(short_arg);
                 if (char_len > 1) {
                     const char = short_args[i .. i + char_len];
                     try stdout.print("Unknown flag \"{s}\"\n", .{char});
                     return error.Input;
                 }
 
-                switch (a) {
-                    'h' => opts.hidden = true,
-                    'f' => opts.follow_links = true,
-                    'c' => opts.color = true,
-                    'i' => opts.ignore_case = true,
-                    'd' => opts.debug = true,
-                    'A' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.after_context = n;
-                    },
-                    'B' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                    },
-                    'C' => {
-                        const n = try expectNumAfterShortArg(stdout, &args, short_args, i);
-                        opts.before_context = n;
-                        opts.after_context = n;
-                    },
-                    else => {
-                        try stdout.print("Unknown option \"{c}\"\n", .{a});
-                        return error.Input;
-                    },
+                const last_short_arg = short_args.len == i + 1;
+                var value: ?[]const u8 = null;
+                if (!last_short_arg) {
+                    if (short_args[i + 1] == '=') {
+                        value = short_args[i + 2 ..];
+                    }
                 }
+
+                for (USER_ARGS) |user_arg| {
+                    if (user_arg.short == short_arg) {
+                        const name: []const u8 = &.{short_arg};
+                        if (try parseArg(stdout, opts, &args, user_arg, name, value, last_short_arg)) {
+                            return null;
+                        }
+
+                        if (value) |_| {
+                            continue :parse;
+                        } else {
+                            continue :short_args;
+                        }
+                    }
+                }
+
+                try stdout.print("Unknown option \"{c}\"\n", .{short_arg});
+                return error.Input;
             }
         } else if (input_pattern == null) {
             input_pattern = arg;
@@ -95,6 +126,65 @@ pub fn parseArgs(stdout: Stdout, opts: *UserOptions, input_paths: *ArrayList([]c
     };
 
     return pattern;
+}
+
+fn parseArg(
+    stdout: Stdout,
+    opts: *UserOptions,
+    args: *std.process.ArgIterator,
+    user_arg: UserArg,
+    name: []const u8,
+    value: ?[]const u8,
+    next_arg: bool,
+) !bool {
+    switch (user_arg.kind) {
+        .value => |kind| {
+            var num: u32 = 0;
+            if (value) |v| {
+                num = try parseNum(stdout, v, name);
+            } else if (next_arg) {
+                num = try expectNum(stdout, args, name);
+            } else {
+                try stdout.print("Missing value after \"{s}\"", .{name});
+                return error.Input;
+            }
+
+            switch (kind) {
+                .Context => {
+                    opts.after_context = num;
+                    opts.before_context = num;
+                },
+                .AfterContext => {
+                    opts.after_context = num;
+                },
+                .BeforeContext => {
+                    opts.before_context = num;
+                },
+            }
+        },
+        .flag => |kind| {
+            if (value) |v| {
+                try stdout.print("Didn't expect value for \"{s}\", found \"{s}\"\n", .{ name, v });
+                return error.Input;
+            }
+
+            switch (kind) {
+                .Hidden => opts.hidden = true,
+                .FollowLinks => opts.follow_links = true,
+                .Color => opts.color = true,
+                .NoHeading => opts.heading = false,
+                .IgnoreCase => opts.ignore_case = true,
+                .Debug => opts.debug = true,
+                .NoUnicode => opts.unicode = false,
+                .Help => {
+                    try printHelp(stdout);
+                    return true;
+                },
+            }
+        },
+    }
+
+    return false;
 }
 
 pub fn printHelp(stdout: Stdout) !void {
@@ -148,6 +238,14 @@ fn expectNum(
         return error.Input;
     };
 
+    return parseNum(stdout, str, name);
+}
+
+fn parseNum(
+    stdout: Stdout,
+    str: []const u8,
+    name: []const u8,
+) !u32 {
     const num = std.fmt.parseInt(u32, str, 10) catch {
         try stdout.print("Expected number for \"{s}\", found \"{s}\"\n", .{ name, str });
         return error.Input;
