@@ -11,6 +11,7 @@ const IterableDir = std.fs.IterableDir;
 const Stdout = File.Writer;
 
 const args = @import("args.zig");
+const UserOptions = args.UserOptions;
 const atomic = @import("atomic.zig");
 const AtomicQueue = atomic.AtomicQueue;
 const AtomicStack = atomic.AtomicStack;
@@ -21,18 +22,6 @@ const SinkBuf = atomic.SinkBuf;
 const TEXT_BUF_SIZE = 1 << 19;
 const SINK_BUF_SIZE = 1 << 12;
 const SEACHER_QUEUE_BUF_SIZE = 1 << 8;
-
-pub const UserOptions = struct {
-    before_context: u32 = 0,
-    after_context: u32 = 0,
-    color: bool = false,
-    heading: bool = true,
-    ignore_case: bool = false,
-    follow_links: bool = false,
-    hidden: bool = false,
-    debug: bool = false,
-    unicode: bool = true,
-};
 
 const WalkerContext = struct {
     allocator: Allocator,

@@ -2,8 +2,17 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Stdout = std.fs.File.Writer;
 
-const main = @import("main.zig");
-const UserOptions = main.UserOptions;
+pub const UserOptions = struct {
+    before_context: u32 = 0,
+    after_context: u32 = 0,
+    color: bool = false,
+    heading: bool = true,
+    ignore_case: bool = false,
+    follow_links: bool = false,
+    hidden: bool = false,
+    debug: bool = false,
+    unicode: bool = true,
+};
 
 const UserArg = struct {
     short: ?u8,
