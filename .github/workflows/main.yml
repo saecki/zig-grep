@@ -24,7 +24,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: goto-bus-stop/setup-zig@v2
       with:
-        version: 0.11.0
+        version: 0.12.0-dev.1092+68ed78775
 
     # Build the program
     - run: cargo build --release --manifest-path="rure/regex-capi/Cargo.toml"
