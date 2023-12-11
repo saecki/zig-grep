@@ -38,6 +38,7 @@
 - somewhat immature ecosystem
     - missing regex library
     - async not available in `0.11` self-hosted compiler
+- bug in `0.11` compiler when building in release mode with enum/union tags
 - unclear crash messages, even in debug mode
     - just memory addresses
     - this is a bug when linking libc
