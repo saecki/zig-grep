@@ -1,7 +1,5 @@
 # seminar-pl-zig-grep
 
-NOTE: zig `0.12` is required because of a bug in release builds with `0.11`.
-
 ## Build & Run
 - Install the [zig toolchain](https://ziglang.org/download)
 - Install the [rust toolchain](https://rustup.rs/)
