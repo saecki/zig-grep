@@ -7,7 +7,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
-const IterableDir = std.fs.IterableDir;
 const Stdout = File.Writer;
 
 const args = @import("args.zig");
@@ -33,7 +32,7 @@ const WalkerContext = struct {
 
 const DirIter = struct {
     path: DisplayPath,
-    iter: IterableDir.Iterator,
+    iter: Dir.Iterator,
 };
 
 /// The context inside the worker thread
@@ -163,7 +162,7 @@ fn run(stdout: Stdout) !void {
     var sink = Sink.init(stdout);
 
     // start searcher threads
-    var queue_buf = try allocator.alloc(DisplayPath, SEACHER_QUEUE_BUF_SIZE);
+    const queue_buf = try allocator.alloc(DisplayPath, SEACHER_QUEUE_BUF_SIZE);
     defer allocator.free(queue_buf);
     var queue = AtomicQueue(DisplayPath).init(queue_buf);
     var searchers = ArrayList(std.Thread).init(allocator);
@@ -203,7 +202,7 @@ fn run(stdout: Stdout) !void {
         };
 
         const open_options = .{ .no_follow = true };
-        const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+        const dir = try std.fs.openDirAbsolute(abs_path, open_options);
         try stack_buf.append(WalkerEntry{
             .depth = 0,
             .data = DirIter{
@@ -272,7 +271,7 @@ fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !
         regex_flags |= c.RURE_FLAG_UNICODE;
     }
 
-    var regex_error = c.rure_error_new();
+    const regex_error = c.rure_error_new();
     defer c.rure_error_free(regex_error);
     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
     const regex = maybe_regex orelse {
@@ -354,7 +353,7 @@ fn walkPath(
                 const open_options = .{ .no_follow = true };
                 const abs_path = try allocSlice(u8, ctx.allocator, path_buf.items);
 
-                const sub_dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+                const sub_dir = try std.fs.openDirAbsolute(abs_path, open_options);
                 const sub_dir_path = DisplayPath{
                     .abs = abs_path,
                     .display_prefix = dir_path.display_prefix,
@@ -455,7 +454,7 @@ inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), 
         .directory => {
             file.close();
             const open_options = .{ .no_follow = true };
-            const dir = try std.fs.openIterableDirAbsolute(path.abs, open_options);
+            const dir = try std.fs.openDirAbsolute(path.abs, open_options);
             return DirIter{
                 .iter = dir.iterate(),
                 .path = path,
@@ -499,14 +498,14 @@ fn startSearcher(_ctx: SearcherContext) !void {
     var ctx = _ctx;
 
     // reuse text buffer
-    var text_buf = try ctx.allocator.alloc(u8, TEXT_BUF_SIZE);
+    const text_buf = try ctx.allocator.alloc(u8, TEXT_BUF_SIZE);
     defer ctx.allocator.free(text_buf);
     var line_buf = ArrayList([]const u8).init(ctx.allocator);
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(ctx.opts.before_context);
 
     while (true) {
-        var msg = ctx.queue.get();
+        const msg = ctx.queue.get();
         switch (msg) {
             .Some => |path| {
                 defer ctx.allocator.free(path.abs);
@@ -909,7 +908,7 @@ inline fn printRemainder(sink: *SinkBuf, chunk_buf: *ChunkBuffer, text: []const 
 }
 
 inline fn allocSlice(comptime T: type, allocator: Allocator, slice: []const T) ![]T {
-    var buf = try allocator.alloc(T, slice.len);
+    const buf = try allocator.alloc(T, slice.len);
     @memcpy(buf, slice);
     return buf;
 }

@@ -4,6 +4,8 @@ const ArrayList = std.ArrayList;
 const Futex = std.Thread.Futex;
 const File = std.fs.File;
 
+const AtomicOrder = std.builtin.AtomicOrder;
+
 pub const MessageType = enum {
     Some,
     Stop,
@@ -20,7 +22,7 @@ fn AtomicMessage(comptime T: type) type {
 pub fn AtomicQueue(comptime T: type) type {
     return struct {
         mutex: std.Thread.Mutex,
-        state: std.atomic.Atomic(State),
+        state: std.atomic.Value(State),
         buf: []T,
         pos: usize,
         len: usize,
@@ -39,7 +41,7 @@ pub fn AtomicQueue(comptime T: type) type {
         pub fn init(buf: []T) Self {
             return Self{
                 .mutex = std.Thread.Mutex{},
-                .state = .{ .value = .Empty },
+                .state = std.atomic.Value(State).init(.Empty),
                 .buf = buf,
                 .pos = 0,
                 .len = 0,
@@ -75,7 +77,7 @@ pub fn AtomicQueue(comptime T: type) type {
             self.len += 1;
 
             const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
+            self.state.store(new_state, AtomicOrder.SeqCst);
             Futex.wake(@ptrCast(&self.state), 1);
         }
 
@@ -93,7 +95,7 @@ pub fn AtomicQueue(comptime T: type) type {
 
             self.stop_signal = true;
             const new_state: State = if (self.len == self.buf.len) .Full else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
+            self.state.store(new_state, AtomicOrder.SeqCst);
             const max_waiters: u32 = if (self.len == 0) std.math.maxInt(u32) else 1;
             Futex.wake(@ptrCast(&self.state), max_waiters);
         }
@@ -122,7 +124,7 @@ pub fn AtomicQueue(comptime T: type) type {
             self.len -= 1;
 
             const new_state: State = if (self.len == 0 and !self.stop_signal) .Empty else .NonEmpty;
-            self.state.store(new_state, std.atomic.Ordering.SeqCst);
+            self.state.store(new_state, AtomicOrder.SeqCst);
             const max_waiters: u32 = if (self.len == 0 and self.stop_signal) std.math.maxInt(u32) else 1;
             Futex.wake(@ptrCast(&self.state), max_waiters);
 
@@ -135,7 +137,7 @@ pub fn AtomicQueue(comptime T: type) type {
 pub fn AtomicStack(comptime T: type) type {
     return struct {
         mutex: std.Thread.Mutex,
-        state: std.atomic.Atomic(u32),
+        state: std.atomic.Value(u32),
         alive_workers: u32,
         buf: *ArrayList(Entry),
 
@@ -158,7 +160,7 @@ pub fn AtomicStack(comptime T: type) type {
             const state: State = if (buf.items.len == 0) .Empty else .NonEmpty;
             return Self{
                 .mutex = std.Thread.Mutex{},
-                .state = std.atomic.Atomic(u32).init(@intFromEnum(state)),
+                .state = std.atomic.Value(u32).init(@intFromEnum(state)),
                 .alive_workers = num_workers,
                 .buf = buf,
             };
@@ -179,7 +181,7 @@ pub fn AtomicStack(comptime T: type) type {
                 }
             }
             try self.buf.insert(i, entry);
-            self.state.store(@intFromEnum(State.NonEmpty), std.atomic.Ordering.SeqCst);
+            self.state.store(@intFromEnum(State.NonEmpty), AtomicOrder.SeqCst);
             Futex.wake(&self.state, 1);
         }
 
@@ -190,7 +192,7 @@ pub fn AtomicStack(comptime T: type) type {
             while (self.buf.items.len == 0) {
                 self.alive_workers -= 1;
                 if (self.alive_workers == 0) {
-                    self.state.store(@intFromEnum(State.Stop), std.atomic.Ordering.SeqCst);
+                    self.state.store(@intFromEnum(State.Stop), AtomicOrder.SeqCst);
                     Futex.wake(&self.state, std.math.maxInt(u32));
                     return .Stop;
                 }
@@ -205,7 +207,7 @@ pub fn AtomicStack(comptime T: type) type {
             const val = self.buf.pop();
 
             if (self.buf.items.len == 0) {
-                self.state.store(@intFromEnum(State.Empty), std.atomic.Ordering.SeqCst);
+                self.state.store(@intFromEnum(State.Empty), AtomicOrder.SeqCst);
             }
 
             return Message{ .Some = val };
@@ -338,7 +340,7 @@ pub const SinkBuf = struct {
 
     /// Force exclusive transaction to start and write content.
     pub fn flush(self: *Self) !void {
-        var w = self.ensureExclusive();
+        const w = self.ensureExclusive();
         try self.flushInternal(w);
     }
 
@@ -348,7 +350,7 @@ pub const SinkBuf = struct {
             return;
         }
 
-        var w = self.ensureExclusive();
+        const w = self.ensureExclusive();
         try self.flushInternal(w);
         self.sink.endExclusive(&self.exclusive_writer);
     }
@@ -357,7 +359,7 @@ pub const SinkBuf = struct {
         if (self.exclusive_writer) |w| {
             return w;
         } else {
-            var w = self.sink.startExclusive();
+            const w = self.sink.startExclusive();
             self.exclusive_writer = w;
             return w;
         }
