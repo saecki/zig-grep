@@ -118,6 +118,7 @@ fn wrapRun() !void {
 
     run(stdout) catch |err| {
         if (err == error.Input) {
+            try stdout.writeByte('\n');
             try args.printHelp(stdout);
         } else if (err == error.Loop) {
             // print nothing

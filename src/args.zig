@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Stdout = std.fs.File.Writer;
 
@@ -15,9 +16,10 @@ pub const UserOptions = struct {
 };
 
 const UserArg = struct {
+    kind: UserArgKind,
     short: ?u8,
     long: []const u8,
-    kind: UserArgKind,
+    help: []const u8,
 };
 
 const UserArgKind = union(enum) {
@@ -42,22 +44,146 @@ const UserArgFlag = enum {
 };
 
 const USER_ARGS = [_]UserArg{
-    .{ .short = 'C', .long = "context", .kind = .{ .value = .Context } },
-    .{ .short = 'A', .long = "after-context", .kind = .{ .value = .AfterContext } },
-    .{ .short = 'B', .long = "before-context", .kind = .{ .value = .BeforeContext } },
-    .{ .short = 'h', .long = "hidden", .kind = .{ .flag = .Hidden } },
-    .{ .short = 'f', .long = "follow-links", .kind = .{ .flag = .FollowLinks } },
-    .{ .short = 'c', .long = "color", .kind = .{ .flag = .Color } },
-    .{ .short = null, .long = "no-heading", .kind = .{ .flag = .NoHeading } },
-    .{ .short = 'i', .long = "ignore-case", .kind = .{ .flag = .IgnoreCase } },
-    .{ .short = 'd', .long = "debug", .kind = .{ .flag = .Debug } },
-    .{ .short = null, .long = "no-unicode", .kind = .{ .flag = .NoUnicode } },
-    .{ .short = null, .long = "help", .kind = .{ .flag = .Help } },
+    .{
+        .short = 'A',
+        .long = "after-context",
+        .kind = .{ .value = .AfterContext },
+        .help = "prints the given number of following lines for each match",
+    },
+    .{
+        .short = 'B',
+        .long = "before-context",
+        .kind = .{ .value = .BeforeContext },
+        .help = "prints the given number of preceding lines for each match",
+    },
+    .{
+        .short = 'c',
+        .long = "color",
+        .kind = .{ .flag = .Color },
+        .help = "print with colors, highlighting the matched phrase in the output",
+    },
+    .{
+        .kind = .{ .value = .Context },
+        .short = 'C',
+        .long = "context",
+        .help = "prints the number of preceding and following lines for each match. this is equivalent to setting --before-context and --after-context",
+    },
+    .{
+        .short = 'd',
+        .long = "debug",
+        .kind = .{ .flag = .Debug },
+        .help = "print why paths aren't searched",
+    },
+    .{
+        .short = 'f',
+        .long = "follow-links",
+        .kind = .{ .flag = .FollowLinks },
+        .help = "follow symbolic links",
+    },
+    .{
+        .short = 'h',
+        .long = "hidden",
+        .kind = .{ .flag = .Hidden },
+        .help = "search hidden files and folders",
+    },
+    .{
+        .short = null,
+        .long = "help",
+        .kind = .{ .flag = .Help },
+        .help = "print this message",
+    },
+    .{
+        .short = 'i',
+        .long = "ignore-case",
+        .kind = .{ .flag = .IgnoreCase },
+        .help = "search case insensitive",
+    },
+    .{
+        .short = null,
+        .long = "no-heading",
+        .kind = .{ .flag = .NoHeading },
+        .help = "prints a single line including the filename for each match, instead of grouping matches by file",
+    },
+    .{
+        .short = null,
+        .long = "no-unicode",
+        .kind = .{ .flag = .NoUnicode },
+        .help = "disable unicode support",
+    },
 };
 
-// Parses args into `opts` and `input_paths`. If the --help option was given a
-// message is printed and null is returned. If the args were parsed successfully
-// the *required* pattern is returned.
+const HELP_MSG = genHelp(USER_ARGS.len, USER_ARGS) catch std.process.exit(1);
+fn genHelp(comptime LEN: usize, args: [LEN]UserArg) ![]u8 {
+    const MAX_HELP_MSG_WIDTH = 74;
+    const SHORT_ARG_WIDTH = 4;
+    const HELP_SPACE = 4;
+    const ARG_PLACEHOLDER = " <arg>";
+
+    var buf = [_]u8{0} ** (2 * USER_ARGS.len * MAX_HELP_MSG_WIDTH);
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var msg = ArrayList(u8).init(fba.allocator());
+    var writer = msg.writer();
+
+    try writer.writeAll("usage: searcher [OPTIONS] PATTERN [PATH ...]\n");
+
+    var max_long_arg_width = 0;
+    for (args) |arg| {
+        const width = switch (arg.kind) {
+            .value => 2 + arg.long.len + ARG_PLACEHOLDER.len,
+            .flag => 2 + arg.long.len,
+        };
+        max_long_arg_width = @max(max_long_arg_width, width);
+    }
+    const help_offset = SHORT_ARG_WIDTH + max_long_arg_width + HELP_SPACE;
+
+    for (args) |arg| {
+        // short
+        if (arg.short) |short| {
+            try writer.print(" -{c},", .{short});
+        } else {
+            try writer.writeAll("    ");
+        }
+
+        // long
+        try writer.print("--{s}", .{arg.long});
+        var used_width = SHORT_ARG_WIDTH + 2 + arg.long.len;
+        switch (arg.kind) {
+            .value => {
+                try writer.writeAll(ARG_PLACEHOLDER);
+                used_width += ARG_PLACEHOLDER.len;
+            },
+            .flag => {},
+        }
+        const padding = help_offset - used_width;
+        try writer.writeByteNTimes(' ', padding);
+
+        // help
+        var current_width = help_offset;
+        var word_iter = std.mem.splitScalar(u8, arg.help, ' ');
+
+        if (word_iter.next()) |word| {
+            try writer.writeAll(word);
+            current_width += word.len;
+        }
+
+        while (word_iter.next()) |word| {
+            const additional_width = 1 + word.len;
+            if (current_width + additional_width > MAX_HELP_MSG_WIDTH) {
+                try writer.writeByte('\n');
+                try writer.writeByteNTimes(' ', help_offset);
+                current_width = help_offset + word.len;
+            } else {
+                try writer.writeByte(' ');
+                current_width += additional_width;
+            }
+            try writer.writeAll(word);
+        }
+
+        try writer.writeByte('\n');
+    }
+    return msg.items;
+}
+
 pub fn parseArgs(stdout: Stdout, opts: *UserOptions, input_paths: *ArrayList([]const u8)) !?[]const u8 {
     var args = std.process.args();
 
@@ -197,30 +323,7 @@ fn parseArg(
 }
 
 pub fn printHelp(stdout: Stdout) !void {
-    const HELP_MESSAGE =
-        \\
-        \\usage: searcher [OPTIONS] PATTERN [PATH ...]
-        \\ -A,--after-context <arg>     prints the given number of following lines
-        \\                              for each match
-        \\ -B,--before-context <arg>    prints the given number of preceding lines
-        \\                              for each match
-        \\ -c,--color                   print with colors, highlighting the matched
-        \\                              phrase in the output
-        \\ -C,--context <arg>           prints the number of preceding and following
-        \\                              lines for each match. this is equivalent to
-        \\                              setting --before-context and --after-context
-        \\ -d,--debug                   print why paths aren't searched
-        \\ -f,--follow-links            follow symbolic links
-        \\ -h,--hidden                  search hidden files and folders
-        \\    --help                    print this message
-        \\ -i,--ignore-case             search case insensitive
-        \\    --no-heading              prints a single line including the filename
-        \\                              for each match, instead of grouping matches
-        \\                              by file
-        \\    --no-unicode              disable unicdoe support
-        \\
-    ;
-    try stdout.print(HELP_MESSAGE, .{});
+    try stdout.print(HELP_MSG, .{});
 }
 
 fn expectNumAfterShortArg(
