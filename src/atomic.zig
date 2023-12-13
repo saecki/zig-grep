@@ -48,8 +48,8 @@ pub fn AtomicQueue(comptime T: type) type {
         }
 
         /// Append data to the queue.
-        /// Calling `append` after `stop` has been called is valid but pointless.
-        /// It will just be ignored.
+        /// Calling `append()` after `stop()` has been called is valid but pointless,
+        /// it will just be ignored.
         ///
         /// If the internal ringbuffer is full, this will block until space is available.
         pub fn append(self: *Self, data: T) void {
@@ -79,8 +79,8 @@ pub fn AtomicQueue(comptime T: type) type {
             Futex.wake(@ptrCast(&self.state), 1);
         }
 
-        /// Sends the stop signal, which will make calling `get` always yield
-        /// Message.Stop, once all previous data has been consumed.
+        /// Sends the stop signal. Once all previous data has been consumed,
+        /// this will make calling `get()` always yield `Message.Stop`.
         ///
         /// This won't block, even if the internal ringbuffer is full.
         pub fn stop(self: *Self) void {
@@ -151,7 +151,10 @@ pub fn AtomicStack(comptime T: type) type {
             Stop,
         };
 
-        /// Initialize the queue, there is no `deinit`.
+        /// Initialize the stack, there is no `deinit`.
+        ///
+        /// IMPORTANT: `num_workers` has to be the exact amount of workers using
+        /// the stack, otherwise even if all are blocking no stop signal is sent.
         pub fn init(buf: *ArrayList(Entry), num_workers: u32) Self {
             std.debug.assert(num_workers > 0);
 
@@ -164,6 +167,7 @@ pub fn AtomicStack(comptime T: type) type {
             };
         }
 
+        /// Push an entry onto the stack, a higher `entry.priority`
         pub fn push(self: *Self, entry: Entry) !void {
             self.mutex.lock();
             defer self.mutex.unlock();
@@ -182,6 +186,10 @@ pub fn AtomicStack(comptime T: type) type {
             Futex.wake(&self.state, 1);
         }
 
+        /// Get the topmost item or a stop signal.
+        ///
+        /// If the stack is empty, this will block until a message is available.
+        /// Once all workers are waiting (dead), the stop signal is sent.
         pub fn pop(self: *Self) Message {
             self.mutex.lock();
             defer self.mutex.unlock();
@@ -214,13 +222,14 @@ pub fn AtomicStack(comptime T: type) type {
 
 /// Synchronizes output from several threads.
 ///
-/// This is the thread safe shared writer that all `SinkBuf`s from other threads
+/// This is the thread safe writer that is shared by `SinkBuf`s from other threads.
 pub const Sink = struct {
     mutex: std.Thread.Mutex,
     writer: File.Writer,
 
     const Self = @This();
 
+    /// Initialize the queue, there is no `deinit`.
     pub fn init(writer: File.Writer) Self {
         return Self{
             .mutex = std.Thread.Mutex{},
@@ -229,7 +238,7 @@ pub const Sink = struct {
     }
 
     /// Start an exclusive transaction. This must be followed by calling
-    /// `unlock()` to unblock other threads from using the writer.
+    /// `endExclusive()` to unblock other threads from using the writer.
     fn startExclusive(self: *Self) *File.Writer {
         self.mutex.lock();
         return &self.writer;
@@ -289,6 +298,8 @@ pub const SinkBuf = struct {
         return Writer{ .sink_buf = self };
     }
 
+    /// Initialize the queue, there is no `deinit`, and the `buf` has to be
+    /// cleaned up by the caller.
     pub fn init(sink: *Sink, buf: []u8) Self {
         std.debug.assert(buf.len > 0);
 
