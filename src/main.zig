@@ -209,7 +209,7 @@ fn run(stdout: Stdout) !void {
         const open_options = .{ .no_follow = true };
         const dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
         try stack_buf.append(WalkerEntry{
-            .depth = 0,
+            .priority = 0,
             .data = DirIter{
                 .iter = dir.iterate(),
                 .path = path,
@@ -233,7 +233,7 @@ fn run(stdout: Stdout) !void {
             const dir_iter = try getDirIterOrEnqueue(&sink_buf, &queue, &opts, input_paths.items, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
-                    .depth = 0,
+                    .priority = 0,
                     .data = d,
                 });
             }
@@ -366,7 +366,7 @@ fn walkPath(
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
                 const sub_dir_entry = WalkerEntry{
-                    .depth = dir_entry.depth + 1,
+                    .priority = dir_entry.priority + 1,
                     .data = DirIter{
                         .iter = sub_dir.iterate(),
                         .path = sub_dir_path,
@@ -391,7 +391,7 @@ fn walkPath(
                     const dir_iter = try walkLink(&ctx.sink, ctx.queue, ctx.opts, ctx.input_paths, link_file_path);
                     if (dir_iter) |d| {
                         const link_dir_entry = WalkerEntry{
-                            .depth = dir_entry.depth + 1,
+                            .priority = dir_entry.priority + 1,
                             .data = d,
                         };
                         try ctx.stack.push(link_dir_entry);

@@ -131,7 +131,7 @@ pub fn AtomicQueue(comptime T: type) type {
     };
 }
 
-/// Thread safe stack, with stop signal.
+/// Thread safe priority stack with stop signal.
 pub fn AtomicStack(comptime T: type) type {
     return struct {
         mutex: std.Thread.Mutex,
@@ -142,7 +142,7 @@ pub fn AtomicStack(comptime T: type) type {
         const Self = @This();
         pub const Message = AtomicMessage(Entry);
         pub const Entry = struct {
-            depth: u16,
+            priority: u16,
             data: T,
         };
         pub const State = enum(u32) {
@@ -168,12 +168,11 @@ pub fn AtomicStack(comptime T: type) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            // depth first iteration, so avoid putting a higher directory on top of the stack.
             var i = self.buf.items.len;
             while (i > 0) {
                 i -= 1;
                 const e = self.buf.items[i];
-                if (e.depth < entry.depth) {
+                if (e.priority < entry.priority) {
                     i += 1;
                     break;
                 }
