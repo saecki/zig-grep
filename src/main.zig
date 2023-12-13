@@ -29,6 +29,7 @@ const WalkerContext = struct {
     stack: *AtomicStack(DirIter),
     queue: *AtomicQueue(DisplayPath),
     opts: *const UserOptions,
+    input_paths: []const []const u8,
 };
 
 const DirIter = struct {
@@ -43,17 +44,18 @@ const SearcherContext = struct {
     queue: *AtomicQueue(DisplayPath),
     regex: *c.rure,
     opts: *const UserOptions,
+    input_paths: []const []const u8,
 };
 
 /// Ownership is transferred to the search worker, so it is responsible for cleaning up the resources.
 const DisplayPath = struct {
     /// Has to be freed by the worker.
     abs: []const u8,
-    /// A path that the user provided, use this as a prefix to make output more readable.
-    display_prefix: ?[]const u8,
+    /// An index of a path that the user provided, use this as a prefix to make output more readable.
+    display_prefix: ?u16,
     /// Start offset of the subpath inside the `abs` path.
     /// The subpath that can then be appended to the `display_prefix`.
-    sub_path_offset: usize,
+    sub_path_offset: u16,
 };
 
 const GrepError = error{
@@ -179,6 +181,7 @@ fn run(stdout: Stdout) !void {
             .queue = &queue,
             .regex = regex,
             .opts = &opts,
+            .input_paths = input_paths.items,
         };
         const thread = try std.Thread.spawn(.{}, startSearcher, .{ctx});
         try searchers.append(thread);
@@ -200,7 +203,7 @@ fn run(stdout: Stdout) !void {
         const path = DisplayPath{
             .abs = owned_abs_path,
             .display_prefix = null,
-            .sub_path_offset = abs_path.len,
+            .sub_path_offset = @truncate(abs_path.len),
         };
 
         const open_options = .{ .no_follow = true };
@@ -217,17 +220,17 @@ fn run(stdout: Stdout) !void {
         defer allocator.free(buf);
         var sink_buf = SinkBuf.init(&sink, buf);
 
-        for (input_paths.items) |input_path| {
+        for (input_paths.items, 0..) |input_path, i| {
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const abs_path = try std.fs.realpath(input_path, &path_buf);
             const owned_abs_path = try allocSlice(u8, allocator, abs_path);
             const path = DisplayPath{
                 .abs = owned_abs_path,
-                .display_prefix = input_path,
-                .sub_path_offset = abs_path.len,
+                .display_prefix = @truncate(i),
+                .sub_path_offset = @truncate(abs_path.len),
             };
 
-            const dir_iter = try getDirIterOrEnqueue(&sink_buf, &queue, &opts, path);
+            const dir_iter = try getDirIterOrEnqueue(&sink_buf, &queue, &opts, input_paths.items, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
                     .depth = 0,
@@ -255,6 +258,7 @@ fn run(stdout: Stdout) !void {
             .stack = &stack,
             .queue = &queue,
             .opts = &opts,
+            .input_paths = input_paths.items,
         };
         const thread = try std.Thread.spawn(.{}, startWalker, .{ctx});
         try walkers.append(thread);
@@ -333,7 +337,7 @@ fn walkPath(
         if (!opts.hidden and e.name[0] == '.') {
             if (opts.debug) {
                 try ctx.sink.writeAll("Not searching hidden path: \"");
-                try printPath(&ctx.sink, &DisplayPath{
+                try printPath(&ctx.sink, ctx.input_paths, &DisplayPath{
                     .abs = path_buf.items,
                     .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
@@ -384,7 +388,7 @@ fn walkPath(
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
                     };
-                    const dir_iter = try walkLink(&ctx.sink, ctx.queue, ctx.opts, link_file_path);
+                    const dir_iter = try walkLink(&ctx.sink, ctx.queue, ctx.opts, ctx.input_paths, link_file_path);
                     if (dir_iter) |d| {
                         const link_dir_entry = WalkerEntry{
                             .depth = dir_entry.depth + 1,
@@ -394,7 +398,7 @@ fn walkPath(
                     }
                 } else if (opts.debug) {
                     try ctx.sink.writeAll("Not following link: \"");
-                    try printPath(&ctx.sink, &dir_path);
+                    try printPath(&ctx.sink, ctx.input_paths, &dir_path);
                     try ctx.sink.writeAll("\"\n");
                     try ctx.sink.end();
                 }
@@ -409,6 +413,7 @@ fn walkLink(
     sink: *SinkBuf,
     queue: *AtomicQueue(DisplayPath),
     opts: *const UserOptions,
+    input_paths: []const []const u8,
     link_file_path: DisplayPath,
 ) (GrepError || ResourceError)!?DirIter {
     var rel_link_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
@@ -431,19 +436,19 @@ fn walkLink(
 
     if (symlinkLoops(link_file_path.abs, abs_link_path)) {
         try sink.writeAll("Loop detected \"");
-        try printPath(sink, &link_file_path);
+        try printPath(sink, input_paths, &link_file_path);
         try sink.writeAll("\" points to ancestor \"");
-        try printPath(sink, &link_path);
+        try printPath(sink, input_paths, &link_path);
         try sink.writeAll("\"\n");
         try sink.end();
 
         return error.Loop;
     }
 
-    return getDirIterOrEnqueue(sink, queue, opts, link_path);
+    return getDirIterOrEnqueue(sink, queue, opts, input_paths, link_path);
 }
 
-inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), opts: *const UserOptions, path: DisplayPath) !?DirIter {
+inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), opts: *const UserOptions, input_paths: []const []const u8, path: DisplayPath) !?DirIter {
     const open_flags = .{ .mode = .read_only };
     const file = try std.fs.openFileAbsolute(path.abs, open_flags);
 
@@ -465,10 +470,10 @@ inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), 
         .sym_link => {
             file.close();
             if (opts.follow_links) {
-                return walkLink(sink, queue, opts, path);
+                return walkLink(sink, queue, opts, input_paths, path);
             } else if (opts.debug) {
                 try sink.writeAll("Not following link: \"");
-                try printPath(sink, &path);
+                try printPath(sink, input_paths, &path);
                 try sink.writeAll("\"\n");
                 try sink.end();
             }
@@ -484,7 +489,7 @@ inline fn getDirIterOrEnqueue(sink: *SinkBuf, queue: *AtomicQueue(DisplayPath), 
 
 /// Send work through a queue to a worker in the thread pool.
 /// `path` is copied, and the responsibility of closing `file` is handed over.
-fn enqueueWork(ctx: *WalkerContext, abs_path: []const u8, display_prefix: ?[]const u8, sub_path_offset: usize) !void {
+fn enqueueWork(ctx: *WalkerContext, abs_path: []const u8, display_prefix: ?u16, sub_path_offset: u16) !void {
     const owned_abs_path = try allocSlice(u8, ctx.allocator, abs_path);
 
     const path = DisplayPath{
@@ -619,7 +624,7 @@ fn searchFile(
                     const is_after_context_line = line_num <= lml_num + opts.after_context;
                     const is_unprinted = last_printed_line_num orelse lml_num < line_num;
                     if (is_after_context_line and is_unprinted) {
-                        try printLinePrefix(&ctx.sink, opts, path, line_num, '-');
+                        try printLinePrefix(&ctx.sink, opts, ctx.input_paths, path, line_num, '-');
                         try ctx.sink.print("{s}\n", .{line});
                         chunk_buf.pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
@@ -637,7 +642,7 @@ fn searchFile(
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[35m");
                 }
-                try printPath(&ctx.sink, path);
+                try printPath(&ctx.sink, ctx.input_paths, path);
                 if (opts.color) {
                     try ctx.sink.writeAll("\x1b[0m");
                 }
@@ -682,14 +687,14 @@ fn searchFile(
                         i -= 1;
                         const cline_num = line_num - i - 1;
                         const cline = line_buf.items[i];
-                        try printLinePrefix(&ctx.sink, opts, path, cline_num, '-');
+                        try printLinePrefix(&ctx.sink, opts, ctx.input_paths, path, cline_num, '-');
                         try ctx.sink.writeAll(cline);
                     }
 
                     line_buf.clearRetainingCapacity();
                 }
 
-                try printLinePrefix(&ctx.sink, opts, path, line_num, ':');
+                try printLinePrefix(&ctx.sink, opts, ctx.input_paths, path, line_num, ':');
 
                 chunk_has_match = true;
                 file_has_match = true;
@@ -738,7 +743,7 @@ fn searchFile(
 
                 const cline_start = textIndex(text, cline);
                 const cline_end = cline_start + cline.len;
-                try printLinePrefix(&ctx.sink, opts, path, line_num, '-');
+                try printLinePrefix(&ctx.sink, opts, ctx.input_paths, path, line_num, '-');
                 try ctx.sink.print("{s}\n", .{cline});
 
                 chunk_buf.pos = @min(cline_end + 1, text.len);
@@ -858,13 +863,13 @@ test "exclusive index of scalar pos rev" {
     try std.testing.expectEqual(pos, 3);
 }
 
-inline fn printLinePrefix(sink: *SinkBuf, opts: *const UserOptions, path: *const DisplayPath, line_num: u32, sep: u8) !void {
+inline fn printLinePrefix(sink: *SinkBuf, opts: *const UserOptions, input_paths: []const []const u8, path: *const DisplayPath, line_num: u32, sep: u8) !void {
     if (!opts.heading) {
         // path
         if (opts.color) {
             try sink.writeAll("\x1b[35m");
         }
-        try printPath(sink, path);
+        try printPath(sink, input_paths, path);
         if (opts.color) {
             try sink.writeAll("\x1b[0m");
         }
@@ -882,9 +887,10 @@ inline fn printLinePrefix(sink: *SinkBuf, opts: *const UserOptions, path: *const
     try sink.writeByte(sep);
 }
 
-inline fn printPath(sink: *SinkBuf, path: *const DisplayPath) !void {
+inline fn printPath(sink: *SinkBuf, input_paths: []const []const u8, path: *const DisplayPath) !void {
     const sub_path = path.abs[path.sub_path_offset..];
-    if (path.display_prefix) |p| {
+    if (path.display_prefix) |pi| {
+        const p = input_paths[pi];
         try sink.writeAll(p);
         if (sub_path.len > 0 and p.len > 0 and p[p.len - 1] != std.fs.path.sep) {
             try sink.writeByte(std.fs.path.sep);
