@@ -6,6 +6,7 @@
   set document(author: author, title: title)
   set page(numbering: "1", number-align: center)
   set text(font: "Linux Libertine", lang: "en")
+  set heading(numbering: "1.")
 
   // Title page.
   // The page can contain a logo if you pass one with `logo: "logo.png"`.

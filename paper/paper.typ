@@ -10,22 +10,96 @@
 #pagebreak()
 
 = Introduction
+The objective of this seminar was getting to know a new programming language by writing a simple grep like program.
+
+= Language
+- manual memory management
+    - allocators have to be manually passed
+    - deallocate by `defer`ing `deinit` procedures
+    - memory leaks are automatically detected in debug mode
+- minimal standard library
+    - no unicode string support, only functions for operating on slices e.g. std.mem
+    - utf-8 string libraries are 3rd party
+- exhaustive switch statements
+    - useful for enums
+- generics are just comptime functions operating on types
+- inferred struct literal type `.{}`
+- if enum type is known the type can be omitted, `.variant` is sufficient
+- errors as values
+    - error union explicit or implict
+    - try: return on error
+    - catch: handle error
+- somewhat immature ecosystem
+    - missing regex library
+    - async not available in `0.11` self-hosted compiler
+
+== Introduction
 Zig is a general-purpose compiled systems programming language.
 Andrew Kelley
 2015/2016
 
 It is often mentioned as a successor to C.
 
+== Toolchain
+Installation was as simple as downloading the release tar archive, extracting the toolchain, and symlinking the binary onto a `$PATH`.
+
 The compiler is a single executable called `zig`, it includes a build system which can be configured in a `build.zig` file. The configuration is written in zig itself and thus avoids a separate language just for the build system. The toolchain itself is also a C/C++ compiler which allows zig code to directly interoperate with existing C/C++ code from zig.
 
-Installation was as simple as downloading the release tar archive, extracting the toolchain, and symlinking the binary onto a `$PATH`.
-The zig community also provides a language server called `zls`, which worked out of the box, in neovim. There were some issues with type inference, and completion of member functions of generic types.
+To start a new project inside an existing directory running `zig init-exe` will generate the main source file `src/main.zig` and the build configuration `build.zig`. The program can then be built and executed by running `zig build run`.
 
-Compared to C++, Java, or Rust the std library of zig is quite minimal. 
+The zig community also provides a language server called `zls`, which worked out of the box in neovim. There were some issues with type inference, and completion of member functions of generic types.
+
+== Integers
+Zig has concrete integer types with a predetermined size regardless of platform.
+Common ones are:
+- unsigned: `u8`, `u16`, `u32`, `u64`
+- signed: `i8`, `i16`, `i32`, `i64`.
+But it also allows defining arbitrary sized integers like `i27`, or `u3`.
+
+Zig arrays have a size known at compile time and are stack allocated, unless specified otherwise:
+#sourcecode[```zig
+    const explicit_length = [5]u32{ 0, 1, 2, 3, 4 };
+    const inferred_length = [_]u32{ 5, 6, 7, 8, 9 };
+```]
+
+== Arrays and slices
+Arrays can be sliced using the index operator with an end-exclusive range, returning a slice to the referenced array. By default the slice is a fat pointer which includes a pointer that points to the memory address of the slice inside the array, and the length of the slice.
+#sourcecode[```zig
+    const array = [_]u32{ 0, 1, 2, 3, 4 };
+    const slice = array[1..3];
+    std.debug.print("{d}\n", .{slice.*});
+```]
+The output prints:
+#sourcecode[```
+{ 1, 2 }
+```]
+For better interoperability with `C` zig also allows sentinel terminated pointers or slices. Most commonly this is used for null-terminated strings:
+#sourcecode[```zig
+    const string: *const [32:0]u8 = "this is a null terminated string";
+    const fat_pointer_string_slice: []const u8 = string[10..];
+    const null_terminated_string_slice: [:0]const u8 = string[10..];
+    const null_terminated_string_ptr: [*:0]const u8 = string[10..];
+
+    std.debug.print("size: {}, '{s}'\n", .{@sizeOf([]const u8), fat_pointer_string_slice});
+    std.debug.print("size: {}, '{s}'\n", .{@sizeOf([:0]const u8), null_terminated_string_slice});
+    std.debug.print("size: {}, '{s}'\n", .{@sizeOf([*:0]const u8), null_terminated_string_ptr});
+
+```]
+All three slice/pointer types reference the same data, but in a different way. Variant 1 uses the fat pointer approach described above. Variant 2 also uses the same approach but also upholds the condition that the end of the slice is terminated by a null-byte sentinel. Variant 3 only stores a memory address and relies upon the null-byte sentinel to compute the length of the referenced data when needed.
+As a result the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it doesn't store an additional length field.a
+A limitation of sentinel terminated slices or pointers is that they cannot reference arbitrary parts of an array. Trying to do so fails with the following message:
+#sourcecode[```
+src/main.zig:10:62: error: expected type '[:0]const u8', found '*const [13]u8'
+    const null_terminated_string_slice: [:0]const u8 = string[10..23];
+                                                       ~~~~~~^~~~~~~~
+src/main.zig:10:62: note: destination pointer requires '0' sentinel
+```]
+
+== Eco system
+Compared to C++, Java, or Rust the std library of zig is quite minimal.
 Neither the zig language itself, nore the std library provide a datatype for strings. String literals are represented a byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them. There is no unicode support.
 There are some beginnings of people implementing regex libraries, but none that are ready to be used right now. So I decided on using the rust regex library (`rure`) through it's C API, since it's a standalone project and not part of some standard library.
 To include a C library, some modification inside the `build.zig` configuration file are needed: 
-
 #sourcecode[```zig
     // link all the other stuff needed
     exe.linkLibC();
@@ -50,41 +124,48 @@ The dependencies are taken straight from the `rure` compile script:
     # -lutil -ldl -lpthread -lgcc_s -lc -lm -lrt -lutil -lrure
 ```]
 
-= Language
-- build system
-    - same language for build-system
-    - build.zig is generated
-    - good C interoperability
-- manual memory management
-    - allocators have to be manually passed
-    - deallocate by `defer`ing `deinit` procedures
-    - memory leaks are automatically detected in debug mode
-- minimal standard library
-    - no unicode string support, only functions for operating on slices e.g. std.mem
-    - utf-8 string libraries are 3rd party
-- exhaustive switch statements
-    - useful for enums
-- generics are just comptime functions operating on types
-- inferred struct literal type `.{}`
-- if enum type is known the type can be omitted, `.variant` is sufficient
-- errors as values
-    - error union explicit or implict
-    - try: return on error
-    - catch: handle error
-- slices
-    - pointer and length by default: []u8
-    - sentinel terminated, for example null terminated: [\*0]u8
-    - exclusive ranges for slicing: my_slice[0..2]
-- somewhat immature ecosystem
-    - missing regex library
-    - async not available in `0.11` self-hosted compiler
-- bug in `0.11` compiler when building in release mode with enum/union tags
-- unclear crash messages, even in debug mode
-    - just memory addresses
-    - this is a bug when linking libc
+When linking C libraries, zig isn't able to include debug symbols, so crash messages that would normally be informative, only show memory addresses:
+#sourcecode[```
+thread 20843 panic: index out of bounds: index 14958, len 14948
+Unwind error at address `:0x2ebaef` (error.InvalidDebugInfo), trace may be incomplete
+```]
+This is a known bug.
+
+== Compiler bug
+With zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed fine, bug in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an enum:
+#sourcecode[```zig
+    const UserArgFlag = enum {
+        Hidden,
+        FollowLinks,
+        Color,
+        NoHeading,
+        IgnoreCase,
+        Debug,
+        NoUnicode,
+        Help,
+    };
+```]
+
+The issue was fixed by specifying a concrete type to represent the enum instead of letting the compiler infer the type.
+#sourcecode[```diff
+@@ -27,12 +27,12 @@ const UserArgKind = union(enum) {
+     flag: UserArgFlag,
+ };
+
+-const UserArgValue = enum {
++const UserArgValue = enum(u8) {
+     Context,
+     AfterContext,
+     BeforeContext,
+ };
+-const UserArgFlag = enum {
++const UserArgFlag = enum(u8) {
+     Hidden,
+     FollowLinks,
+     Color,
+```]
 
 = Development process
-
 Since the scope of the program was pre-determined, the main focus was on performance.
 
 The zig std library provides `IterableDir`, an iterator for iterating a directory in a depth first manner, but unfortunately that approach doesn't allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for iterating directories and modified it slightly to allow filtering out hidden directories.
@@ -115,13 +196,6 @@ Since one of the tests was to search an 8gb large text file, the input would nee
 To simplify the previous change, the algorithm would once again search the text line by line. So to restore previously achieved performance, the regex pattern matching was once again adjusted to be run on the whole text buffer.
 
 == Parallelization
-- Two worker thread pools
-    - One for walking the file tree
-    - One for searching files
-- Walking the file tree uses a shared stack for depth first searching
-- A shared queue is used to pass to be searched files
-- A shared sink synchronizes writing to stdout
-
 TODO: mention ripgrep influence
 
 At this point most easy wins in single threaded performance were off the table, so the next easy performance gain would be using multiple threads. The main things that take up time are reading from the file system, and searching the text.
@@ -134,5 +208,6 @@ The other solution is to just block output of all other threads once a match has
 The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization. Once the buffer is full access to stdout is locked for other threads until the file is fully searched, but other workers can still access their thread-local output buffers.
 
 Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next.
+TODO: Walking the file tree uses a shared stack for depth first searching
 
 = Conclusion
