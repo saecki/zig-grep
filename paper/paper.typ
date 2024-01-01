@@ -166,39 +166,28 @@ The issue was fixed by specifying a concrete type to represent the enum instead 
 ```]
 
 = Development process
-Since the scope of the program was pre-determined, the main focus was on performance.
+Since the scope of the program was predetermined, the main focus was on performance.
 
 The zig std library provides `IterableDir`, an iterator for iterating a directory in a depth first manner, but unfortunately that approach doesn't allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for iterating directories and modified it slightly to allow filtering out hidden directories.
 
+TODO: rust-regex crate
+
 == Single threaded optimization
 === Line by line matching
-To keep it simple the first implementation, read the whole file into a single buffer and run a compiled regex pattern match on every line.
+To keep it simple the first implementation, read the whole file into a single buffer and ran a compiled regex pattern match on every line. This was done using a regex iterator from the `rure` crate.
 
 === Whole text matching for performance
-- to avoid allocating iterator for every line
-- then avoid using iterator anyway
-
-After some investigation it turned out that initializing the regex search had more overhead than expected, and running the regex pattern match on the whole text instead of every line would improve performance significantly.
+After some investigation it turned out that initializing the regex search iterator provided by the `rure` crate had more overhead than expected, and running the regex pattern match on the whole text instead of every line would improve performance significantly. After the previous change, I found out that the `rure` library provided a function that allowed setting the start index for searching inside the passed text slice. Using this function avoided allocating the iterator in the first place.
 
 === Line by line matching with fixed size buffer
-- no multiline matches
-- easier to implement
-- lines need to be iterated anyway for line numbers
-
-Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This was done using a fixed size buffer which would only load part of the file, searching that buffer upto the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search.
+Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This was done using a fixed size buffer which would only load part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated to calculate line numbers, and the I discovered the `rure` function that searches the text directly I decided to once again search each line individually, instead of the whole text.
 
 === Whole text matching for performance with fixed size buffer
-- the rust regex `find` functions has extremely high startup
-  overhead on unicode word-character patterns
-- avoided to some extend by searching the whole text buffer
-  instead of just line by line slices
-
-To simplify the previous change, the algorithm would once again search the text line by line. So to restore previously achieved performance, the regex pattern matching was once again adjusted to be run on the whole text buffer.
+After further investigation it turned out that the overhead of searching each line didn't just come from  the `rure` iterator, but some special regex patterns introduced large overhead anyway when starting the search. One example was the word character pattern `\w`, which respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in an exponential explosion of states. Disabling unicode during the regex pattern compilation significantly improved performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.
+One additional bug that I only tackled at this stage was to prevent regex pattern matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the fist matched line, if this succeeds too only this match is highlighted and printed.
 
 == Parallelization
-TODO: mention ripgrep influence
-
-At this point most easy wins in single threaded performance were off the table, so the next easy performance gain would be using multiple threads. The main things that take up time are reading from the file system, and searching the text.
+At this point most easy wins in single threaded optimization were off the table, so the next performance gain would be using multiple threads. The things that take up the largest portion of time are accessing the file system, and searching the text.
 
 Parallelization was implemented using a thread pool of search workers that would receive file paths using a atomically synchronized message queue. The directory walking remained mostly the same apart from searching files adhoc, they were now sent through the message queue.
 
@@ -207,7 +196,8 @@ There are two obvious solutions to this problem. One is to use a dynamically gro
 The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to stdout. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.
 The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization. Once the buffer is full access to stdout is locked for other threads until the file is fully searched, but other workers can still access their thread-local output buffers.
 
-Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next.
+Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next. 
+TODO: mention ripgrep influence
 TODO: Walking the file tree uses a shared stack for depth first searching
 
 = Conclusion
