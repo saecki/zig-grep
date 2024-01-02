@@ -38,7 +38,10 @@ pub fn build(b: *std.Build) void {
     // link rure itself
     exe.addIncludePath(LazyPath.relative("rure/regex-capi/include"));
     exe.addLibraryPath(LazyPath.relative("rure/target/release"));
-    exe.linkSystemLibrary2("rure", .{ .needed = true, .preferred_link_mode = .Static });
+    exe.linkSystemLibrary2("rure", .{
+        .needed = true,
+        .preferred_link_mode = .Static,
+    });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
