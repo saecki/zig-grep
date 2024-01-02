@@ -22,7 +22,6 @@ The objective of this seminar was getting to know a new programming language by 
     - utf-8 string libraries are 3rd party
 - exhaustive switch statements
     - useful for enums
-- generics are just comptime functions operating on types
 - inferred struct literal type `.{}`
 - if enum type is known the type can be omitted, `.variant` is sufficient
 - errors as values
@@ -94,6 +93,90 @@ src/main.zig:10:62: error: expected type '[:0]const u8', found '*const [13]u8'
                                                        ~~~~~~^~~~~~~~
 src/main.zig:10:62: note: destination pointer requires '0' sentinel
 ```]
+
+== Error handling
+In zig there are no exceptions and errors are treated as values. If a function can fail, it returns an error union, the error set of that union can either be inferred or explicitly defined.\
+Like rust zig has a try operator that either returns the error from the current function or unwraps the value.
+#sourcecode[```zig
+    fn printSomething() !void {
+        const stdout = std.io.getStdOut();
+        try stdout.writeAll("something\n");
+    }
+
+    const NullError = error{IsNull};
+
+    fn checkNull(num: usize) NullError!void {
+        if (num == 0) {
+            return error.IsNull;
+        }
+    }
+```]
+
+== Defering
+There are no destructors in zig, so unlike for example C++ the RAII model can't be used to make objects manage their resources automatically. Instead a common pattern to deal with closable resources is to define an `init` and a `deinit` function, which have to be called manually.
+
+When dealing with multiple resources that depend on each other, they have to be called in reverse initialization order to be properly cleaned up.
+To make this more ergonomic zig provides `defer` or `errdefer` keywords, which allow defering cleanup code.
+`defer` runs code when the value goes out of scope:
+#sourcecode[```zig
+    fn readString() ![]const u8 {
+        var file = try std.fs.cwd().openFile("foo.txt", .{});
+        defer file.close();
+        ...
+    }
+```]
+
+`errdefer` runs code only when an error is returned from the scope, this can be useful when dealing with multiple steps that can fail, to clean up intermediate resources.
+
+== Memory management
+Zig doesn't include a garbage collector, and uses a very explicit manual memory management strategy.\
+Allocators are manually instantiated and passed to data structures or function which might allocate. The standard library includes a range of allocators fit for different use cases, ranging from general purpose, and arena, to fixed buffer allocators.
+Memory allocation may fail, and out of memory errors must be handled. Memory deallocation must always succeed.
+
+== Comptime
+Zig provides a powerful compile time evaluation mechanism to avoid using macros or code generation.\
+Contrary to C++ or rust where functions have to be declared `constexpr` or `const` in order to be called at compile time, in zig everything that can be evaluated at `comptime` just is. A function called from a `comptime` context will either yield an error explaining what part of it isn't able to be evaluated at `comptime` or evaluate the value during compilation. A `comptime` context is for example a constant defined at the global scope, or a `comptime` block.
+
+This can be used to uphold constraints at compile time using assertions:
+#sourcecode[```zig
+    const FIB_8 = fibonacci(8);
+    comptime {
+        // won't compile
+        std.debug.assert(fibonacci(3) == 1);
+    }
+
+    fn fibonacci(comptime N: usize) u64 {
+        if (N == 0 or N == 1) {
+            return 1;
+        }
+        var a = 1;
+        var b = 1;
+        for (1..N) |_| {
+            const c = a + b;
+            a = b;
+            b = c;
+        }
+        return b;
+    }
+```]
+
+This means, if the main function is able to be evaluated at compile time, and it is called from a comptime context, the zig compiler acts as an interpreter and the program is executed when it is built. Granted since comptime code can't perform I/O there aren't really much useful things that can be done in such a program.
+
+Arguments to functions can be declared as `comptime` which requires them to be known during compilation. This is often used for types passed to function in the same way other languages handle generics. Considering the following Kotlin class:
+#sourcecode[```kotlin
+    class Container<T>(
+        var items: ArrayList<T>,
+    )
+```]
+An equivalent zig struct would be defined as a function taking a `comptime` type as an argument that returns another type.
+#sourcecode[```zig
+    fn Container(comptime T: type) type {
+        return struct {
+            items: ArrayList(T),
+        }
+    }
+```]
+Note that ArrayList is another such function defined in the std library.
 
 == Eco system
 Compared to C++, Java, or Rust the std library of zig is quite minimal.
@@ -183,7 +266,7 @@ After some investigation it turned out that initializing the regex search iterat
 Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This was done using a fixed size buffer which would only load part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated to calculate line numbers, and the I discovered the `rure` function that searches the text directly I decided to once again search each line individually, instead of the whole text.
 
 === Whole text matching for performance with fixed size buffer
-After further investigation it turned out that the overhead of searching each line didn't just come from  the `rure` iterator, but some special regex patterns introduced large overhead anyway when starting the search. One example was the word character pattern `\w`, which respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in an exponential explosion of states. Disabling unicode during the regex pattern compilation significantly improved performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.
+After further investigation it turned out that the overhead of searching each line didn't just come from  the `rure` iterator, but some special regex patterns introduced large overhead anyway when starting the search. One example was the word character pattern `\w`, which respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in an exponential explosion of states. Disabling unicode during the regex pattern compilation significantly improved performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.\
 One additional bug that I only tackled at this stage was to prevent regex pattern matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the fist matched line, if this succeeds too only this match is highlighted and printed.
 
 == Parallelization
@@ -191,13 +274,88 @@ At this point most easy wins in single threaded optimization were off the table,
 
 Parallelization was implemented using a thread pool of search workers that would receive file paths using a atomically synchronized message queue. The directory walking remained mostly the same apart from searching files adhoc, they were now sent through the message queue.
 
-The output of multiple threads now had to be synchronized so that lines printed from one file would not be interspersed with other ones.
-There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.
-The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to stdout. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.
+The output of multiple threads now had to be synchronized so that lines printed from one file would not be interspersed with other ones.\
+There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.\
+The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to stdout. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.\
 The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization. Once the buffer is full access to stdout is locked for other threads until the file is fully searched, but other workers can still access their thread-local output buffers.
 
-Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next. 
-TODO: mention ripgrep influence
-TODO: Walking the file tree uses a shared stack for depth first searching
+Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next.\
+This was heavily influenced by the rust `ignore` by the same author as, and also used in ripgrep. A thread pool of "walkers" is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.
+A walker tries to pop of a directory iterator of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. Once all walkers are waiting for a new directory iterator all directories have been walked completely and the thread pool is stopped.
+
+== Command line argument parsing
+Argument parsing makes use of tagged unions and `comptime`.
+
+There are two different types of arguments: flags and values, both of these are defined as enums. `UserArgFlag`s don't require a value and are just boolean toggles. `UserArgValue`s require a value, for example a number, to be specified after them. `UserArgKind` is a tagged union that either contains one or the other.
+#sourcecode[```zig
+    const UserArgKind = union(enum) {
+        value: UserArgValue,
+        flag: UserArgFlag,
+    };
+
+    const UserArgValue = enum(u8) {
+        Context,
+        AfterContext,
+        BeforeContext,
+    };
+    const UserArgFlag = enum(u8) {
+        Hidden,
+        FollowLinks,
+        Color,
+        NoHeading,
+        IgnoreCase,
+        Debug,
+        NoUnicode,
+        Help,
+    };
+```]
+
+All user args are defined in an array, including their long form, an optional short form, a description and their union representation.
+#sourcecode[```zig
+    const USER_ARGS = [_]UserArg{
+        .{
+            .short = 'A',
+            .long = "after-context",
+            .kind = .{ .value = .AfterContext },
+            .help = "prints the given number of following lines for each match",
+        },
+        ...
+        .{
+            .short = null,
+            .long = "help",
+            .kind = .{ .flag = .Help },
+            .help = "print this message",
+        },
+        ...
+    };
+```]
+
+When parsing command line arguments this can be used to exhaustively match all possible valid inputs using a switch statement. When adding a new enum variant the compiler enforces it is handled in all switch statements that match the modified enum. This is the simplified switch statements that handles all arguments:
+#sourcecode[```zig
+    switch (user_arg.kind) {
+        .value => |kind| {
+            ...
+
+            switch (kind) {
+                .Context => {
+                    opts.after_context = num;
+                    opts.before_context = num;
+                },
+                ...
+            }
+        },
+        .flag => |kind| {
+            ...
+
+            switch (kind) {
+                .Hidden => opts.hidden = true,
+                ...
+            }
+        },
+    }
+```]
+
+The help message is generated at `comptime`, using the list of possible arguments.\
+Instead of a general purpose allocator a fixed buffer allocator had to be used, but otherwise the code could be written without taking any precautions.
 
 = Conclusion
