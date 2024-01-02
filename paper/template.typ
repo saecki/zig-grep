@@ -36,5 +36,29 @@
   // Main body.
   set par(justify: true)
 
+  // Prettier raw text
+  show raw.where(lang: none, block: false): r => {
+    let words = r.text.split(" ")
+    for (idx, word) in words.enumerate() {
+      let w-radius = if words.len() == 1 {
+        3pt
+      } else if idx == 0 {
+        (left: 3pt)
+      } else if idx == words.len() - 1 {
+        (right: 3pt)
+      } else {
+        0pt
+      }
+      
+      box(
+        fill: rgb("#f4f6fa"),
+        outset: (y: 3pt),
+        inset: (x: 2pt),
+        radius: w-radius,
+        text(fill: rgb("#4050d0"), word),
+      )
+    }
+  }
+
   body
 }
