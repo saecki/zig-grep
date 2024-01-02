@@ -28,6 +28,10 @@
   v(2.4fr)
   pagebreak()
 
+  // Outline.
+  outline()
+  pagebreak()
+
 
   // Main body.
   set par(justify: true)
