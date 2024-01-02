@@ -112,7 +112,7 @@ const USER_ARGS = [_]UserArg{
     },
 };
 
-const HELP_MSG = genHelp(USER_ARGS.len, USER_ARGS) catch std.process.exit(1);
+const HELP_MSG = genHelp(USER_ARGS.len, USER_ARGS) catch unreachable;
 fn genHelp(comptime LEN: usize, args: [LEN]UserArg) ![]u8 {
     const MAX_HELP_MSG_WIDTH = 74;
     const SHORT_ARG_WIDTH = 4;
