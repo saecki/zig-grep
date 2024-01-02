@@ -13,30 +13,12 @@
 The objective of this seminar was getting to know a new programming language by writing a simple grep like program.
 
 = Language
-- manual memory management
-    - allocators have to be manually passed
-    - deallocate by `defer`ing `deinit` procedures
-    - memory leaks are automatically detected in debug mode
-- minimal standard library
-    - no unicode string support, only functions for operating on slices e.g. std.mem
-    - utf-8 string libraries are 3rd party
-- exhaustive switch statements
-    - useful for enums
-- inferred struct literal type `.{}`
-- if enum type is known the type can be omitted, `.variant` is sufficient
-- errors as values
-    - error union explicit or implict
-    - try: return on error
-    - catch: handle error
-- somewhat immature ecosystem
-    - missing regex library
-    - async not available in `0.11` self-hosted compiler
-
-== Introduction
+== About
 Zig is a general-purpose compiled systems programming language.
 Andrew Kelley
 2015/2016
-
+Zig software foundation
+    only no strings attached donations
 It is often mentioned as a successor to C.
 
 == Toolchain
@@ -53,7 +35,7 @@ Zig has concrete integer types with a predetermined size regardless of platform.
 Common ones are:
 - unsigned: `u8`, `u16`, `u32`, `u64`
 - signed: `i8`, `i16`, `i32`, `i64`.
-But it also allows defining arbitrary sized integers like `i27`, or `u3`.
+But it also allows defining arbitrary sized integers like `i27`, or `u3`, up to a bit-width of `65535`.
 
 Zig arrays have a size known at compile time and are stack allocated, unless specified otherwise:
 #sourcecode[```zig
@@ -84,7 +66,7 @@ For better interoperability with `C` zig also allows sentinel terminated pointer
     std.debug.print("size: {}, '{s}'\n", .{@sizeOf([*:0]const u8), null_terminated_string_ptr});
 
 ```]
-All three slice/pointer types reference the same data, but in a different way. Variant 1 uses the fat pointer approach described above. Variant 2 also uses the same approach but also upholds the condition that the end of the slice is terminated by a null-byte sentinel. Variant 3 only stores a memory address and relies upon the null-byte sentinel to compute the length of the referenced data when needed.
+All three slice/pointer types reference the same data, but in a different way. Variant 1 uses the fat pointer approach described above. Variant 2 also uses the same approach but also upholds the constraint that the end of the slice is terminated by a null-byte sentinel. Variant 3 only stores a memory address and relies upon the null-byte sentinel to compute the length of the referenced data when needed.
 As a result the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it doesn't store an additional length field.a
 A limitation of sentinel terminated slices or pointers is that they cannot reference arbitrary parts of an array. Trying to do so fails with the following message:
 #sourcecode[```
@@ -94,7 +76,39 @@ src/main.zig:10:62: error: expected type '[:0]const u8', found '*const [13]u8'
 src/main.zig:10:62: note: destination pointer requires '0' sentinel
 ```]
 
+== Type inference
+The type of zig variables is inferred only using directly assigned values. A type can optionally be specified, and is required in some cases. For example when an integer literal is assigned to a mutable variable, it's exact type must be specified.
+When the type of a struct is known, for example when passing it to a function, it's name can be omitted and an anonymous literal can be used:
+#sourcecode[```zig
+    struct Foo {
+        a: i32,
+        b: bool = false,
+    }
+    fn doSomething(value: Foo) {
+        ...
+    }
+
+    doSomething(.{ .a = 21 });
+```]
+The same is also true for enums and tagged unions. When the type is known, the name of the enum can be omitted and only the variant needs to written out:
+#sourcecode[```zig
+    enum Bar {
+        One,
+        Two,
+        Three,
+    }
+    const BAR_THREE: Bar = .Three;
+```]
+
+== Control flow primitives
+- exhaustive switch statements
+    - useful for enums
+
 == Error handling
+- errors as values
+    - error union explicit or implict
+    - try: return on error
+    - catch: handle error
 In zig there are no exceptions and errors are treated as values. If a function can fail, it returns an error union, the error set of that union can either be inferred or explicitly defined.\
 Like rust zig has a try operator that either returns the error from the current function or unwraps the value.
 #sourcecode[```zig
@@ -129,9 +143,11 @@ To make this more ergonomic zig provides `defer` or `errdefer` keywords, which a
 `errdefer` runs code only when an error is returned from the scope, this can be useful when dealing with multiple steps that can fail, to clean up intermediate resources.
 
 == Memory management
-Zig doesn't include a garbage collector, and uses a very explicit manual memory management strategy.\
-Allocators are manually instantiated and passed to data structures or function which might allocate. The standard library includes a range of allocators fit for different use cases, ranging from general purpose, and arena, to fixed buffer allocators.
+Zig doesn't include a garbage collector and uses a very explicit manual memory management strategy.\
+Allocators are manually instantiated and passed to data structures or function which might allocate. The standard library includes a range of allocators fit for different use cases, ranging from general purpose, and arena, to fixed buffer allocators.\
 Memory allocation may fail, and out of memory errors must be handled. Memory deallocation must always succeed.
+Like other resources, data structures that allocate provide a `deinit` procedure that can be `defer`ed to deallocate the used memory.\
+In debug mode zig keeps track of allocations and detects memory leaks.
 
 == Comptime
 Zig provides a powerful compile time evaluation mechanism to avoid using macros or code generation.\
@@ -178,10 +194,30 @@ An equivalent zig struct would be defined as a function taking a `comptime` type
 ```]
 Note that ArrayList is another such function defined in the std library.
 
+== SIMD
+In addition to the automatic vectorization of code that the LLVM optimizer does, zig also provides a way to explicitly define vector operations that will compile down to target specific SIMD operations.
+#sourcecode[```zig
+    const a = @Vector(4, i32){ 1, 2, 3, 4 };
+    const b = @Vector(4, i32){ 5, 6, 7, 8 };
+    const c = a + b;
+```]
+
 == Eco system
+- minimal standard library
+    - no unicode string support, only functions for operating on slices e.g. std.mem
+    - utf-8 string libraries are 3rd party
+- somewhat immature ecosystem
+    - missing regex library
+    - async not available in `0.11` self-hosted compiler
 Compared to C++, Java, or Rust the std library of zig is quite minimal.
-Neither the zig language itself, nore the std library provide a datatype for strings. String literals are represented a byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them. There is no unicode support.
-There are some beginnings of people implementing regex libraries, but none that are ready to be used right now. So I decided on using the rust regex library (`rure`) through it's C API, since it's a standalone project and not part of some standard library.
+Neither the zig language itself, nor the std library provide a datatype for strings. String literals are represented as byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them. There is no unicode support.
+
+= Development process
+Since the scope of the program was predetermined, the main focus was on performance.
+
+The zig std library provides `IterableDir`, an iterator for iterating a directory in a depth first manner, but unfortunately that approach doesn't allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for iterating directories and modified it slightly to allow filtering out hidden directories.
+
+There are some beginnings of regex libraries written in zig, but they are still in their infancy, and aren't ready to be used right now. So I decided on using the rust regex library (`rure`) through it's C API, since it's a standalone project, without tethers to a standard library, and reasonable fast.\
 To include a C library, some modification inside the `build.zig` configuration file are needed: 
 #sourcecode[```zig
     // link all the other stuff needed
@@ -197,6 +233,7 @@ To include a C library, some modification inside the `build.zig` configuration f
     exe.addLibraryPath(LazyPath.relative("rure/target/release"));
     exe.linkSystemLibrary2("rure", .{ .needed = true, .preferred_link_mode = .Static });
 ```]
+This links the `rure` crate and all it's dependencies statically into the final binary.
 
 The dependencies are taken straight from the `rure` compile script:
 #sourcecode[```sh
@@ -213,47 +250,6 @@ thread 20843 panic: index out of bounds: index 14958, len 14948
 Unwind error at address `:0x2ebaef` (error.InvalidDebugInfo), trace may be incomplete
 ```]
 This is a known bug.
-
-== Compiler bug
-With zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed fine, bug in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an enum:
-#sourcecode[```zig
-    const UserArgFlag = enum {
-        Hidden,
-        FollowLinks,
-        Color,
-        NoHeading,
-        IgnoreCase,
-        Debug,
-        NoUnicode,
-        Help,
-    };
-```]
-
-The issue was fixed by specifying a concrete type to represent the enum instead of letting the compiler infer the type.
-#sourcecode[```diff
-@@ -27,12 +27,12 @@ const UserArgKind = union(enum) {
-     flag: UserArgFlag,
- };
-
--const UserArgValue = enum {
-+const UserArgValue = enum(u8) {
-     Context,
-     AfterContext,
-     BeforeContext,
- };
--const UserArgFlag = enum {
-+const UserArgFlag = enum(u8) {
-     Hidden,
-     FollowLinks,
-     Color,
-```]
-
-= Development process
-Since the scope of the program was predetermined, the main focus was on performance.
-
-The zig std library provides `IterableDir`, an iterator for iterating a directory in a depth first manner, but unfortunately that approach doesn't allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for iterating directories and modified it slightly to allow filtering out hidden directories.
-
-TODO: rust-regex crate
 
 == Single threaded optimization
 === Line by line matching
@@ -357,5 +353,39 @@ When parsing command line arguments this can be used to exhaustively match all p
 
 The help message is generated at `comptime`, using the list of possible arguments.\
 Instead of a general purpose allocator a fixed buffer allocator had to be used, but otherwise the code could be written without taking any precautions.
+
+== Compiler bug
+With zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed fine, bug in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an enum:
+#sourcecode[```zig
+    const UserArgFlag = enum {
+        Hidden,
+        FollowLinks,
+        Color,
+        NoHeading,
+        IgnoreCase,
+        Debug,
+        NoUnicode,
+        Help,
+    };
+```]
+
+The issue was fixed by specifying a concrete type to represent the enum instead of letting the compiler infer the type.
+#sourcecode[```diff
+@@ -27,12 +27,12 @@ const UserArgKind = union(enum) {
+     flag: UserArgFlag,
+ };
+
+-const UserArgValue = enum {
++const UserArgValue = enum(u8) {
+     Context,
+     AfterContext,
+     BeforeContext,
+ };
+-const UserArgFlag = enum {
++const UserArgFlag = enum(u8) {
+     Hidden,
+     FollowLinks,
+     Color,
+```]
 
 = Conclusion
