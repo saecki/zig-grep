@@ -1,0 +1,83 @@
+ziglang: &ziglang
+  type: Web
+  title: Zig
+  url: https://ziglang.org/
+
+zigdoc: &zigdoc
+  type: Reference
+  title: Zig Language Reference
+  serial-number: v0.11.0
+  url: https://ziglang.org/documentation/0.11.0/
+  parent: *ziglang
+
+zigdoc_integers:
+  type: Entry
+  title: Integers
+  url: https://ziglang.org/documentation/0.11.0/#Integers
+  parent: *zigdoc
+
+zigdoc_arrays:
+  type: Entry
+  title: Arrays
+  url: https://ziglang.org/documentation/0.11.0/#Arrays
+  parent: *zigdoc
+
+zigdoc_pointers:
+  type: Entry
+  title: Pointers
+  url: https://ziglang.org/documentation/0.11.0/#Pointers
+  parent: *zigdoc
+
+zigdoc_slices:
+  type: Entry
+  title: Slices
+  url: https://ziglang.org/documentation/0.11.0/#Slices
+  parent: *zigdoc
+
+ziglang_repo: &ziglang_repo
+  type: Repository
+  title: Zig repository
+  url: https://github.com/ziglang/zig
+  parent: *ziglang
+
+ziglang_issue_12046:
+  type: Web
+  title: Invalid debug info when linking to system library.
+  url: https://github.com/ziglang/zig/issues/12046
+  serial-number: 12046
+  parent: *ziglang_repo
+
+zls:
+  type: Repository
+  title: zls
+  url: https://github.com/zigtools/zls
+
+zigup:
+  type: Repository
+  title: zigup
+  url: https://github.com/marler8997/zigup
+
+rustlang:
+  type: Web
+  title: Rust
+  url: https://www.rust-lang.org/
+
+kotlinlang:
+  type: Web
+  title: Kotlin
+  url: https://kotlinlang.org/
+
+creference:
+  type: Reference
+  title: C reference
+  url: https://en.cppreference.com/w/c
+
+cppreference:
+  type: Reference
+  title: C++ reference
+  url: https://en.cppreference.com/w/
+
+neovim:
+  type: Web
+  title: neovim
+  url: https://neovim.io/
