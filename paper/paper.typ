@@ -14,8 +14,10 @@
 }
 
 #show: project.with(
-  title: "Seminar Programmiersprachen im Verlgeich - Zig",
+  title: "Seminar Programmiersprachen im Vergleich - Zig",
   author: "Tobias Schmitz",
+  logo: "zigfast.png",
+  logo_tag: <zigfast_logo>,
 )
 
 = Introduction
@@ -23,12 +25,11 @@ The objective of this seminar was getting to know a new programming language by 
 
 = Language
 == About
-Zig is a general-purpose compiled systems programming language.
-It was initially developed by Andrew Kelley and released in 2015/2016.
-- *TODO*
-- Zig software foundation
-    - only no strings attached donations
-- It is often mentioned as a successor to C.
+Zig is a general-purpose compiled systems programming language @ziglang.
+It was initially developed by Andrew Kelley and released in 2016 @zig_introduction.
+Today development is funded by the Zig software foundation (ZSF), which is a nonprofit (`501(c)(3)`) corporation stationed in New York @zig_software_foundation.
+
+Zig is placed as a successor to C, it is an intentionally small and simple language, with it's whole syntax fitting in a 500 line PEG grammar file @zigdoc_grammar. If focuses on readability and maintainability restricting the control flow only to language keywords and function calls @ziglang_overview.
 
 == Toolchain
 Installation was as simple as downloading the release tar archive from the downloads section of the Zig website @ziglang_downloads, extracting the toolchain, and symlinking the binary onto a `$PATH`. There is also a community project named `zigup` @zigup which is allows installing and managing multiple versions of the Zig compiler.
@@ -310,9 +311,10 @@ In addition to the automatic vectorization of code that the LLVM @llvm optimizer
 == Ecosystem
 Compared to C++, Java, or Rust the std library of Zig is quite minimal.
 Neither the Zig language itself, nor the std library directly define a string datatype. String literals are represented as byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them.
-- somewhat immature ecosystem
-    - missing regex library
-    - async not available in `0.11` self-hosted compiler
+
+With Zig being a young language, the eco system in general is still a little immature.
+To date there is no regex library written in zig that has feature parity with established regex engines.
+Zig `0.11.0` doesn't include support for `async` functions @zig_postponed_again.
 
 = Development process
 Since the scope of the program was predetermined, I mainly focused on performance.
@@ -371,18 +373,21 @@ And the c definitions can be accessed using the returned object.
 ```]
 
 == Single threaded optimization
+The program was profiled in an end to end manner using `hyperfine` @hyperfine.
+
 === Line by line searching
-To keep it simple the first implementation, read the whole file into a single buffer and ran a compiled regex pattern match on every line. This was done using a regex iterator from the `rure` crate.
+To keep it simple, the first implementation reads the whole file into a single buffer and runs a pre-compiled regex search on every line. Regex pattern matching is done using a regex iterator from the `rure` crate.
 
 === Whole text searching
-After some investigation it turned out that initializing the regex search iterator provided by the `rure` crate had more overhead than expected, and running the regex pattern match on the whole text instead of every line would improve performance significantly. Following the previous change, I found out that the `rure` library provided a function that allowed setting the start index for searching inside the passed text slice. Using this function avoided allocating the iterator in the first place.
+After some investigation it turned out that initializing the regex iterator provided by the `rure` crate had more overhead than expected, and running the regex search on the whole text instead of every line would improve performance significantly. Following this change, I found out that the `rure` library also provided a function that allowed searching from a specified start index inside the passed text slice. Using this function avoided allocating the iterator in the first place.
 
 === Line by line searching with fixed size buffer
-Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This was done using a fixed size buffer which would only load part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated to calculate line numbers, and I discovered the `rure` function that searches the text directly without an iterator, I decided to once again search each line individually, instead of the whole text.
+Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This is done using a fixed size buffer which only loads part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated anyway to calculate line numbers, and the implementation was now using the function that searches the text directly without an iterator, I decided to once again search each line individually, instead of the whole text.
 
 === Whole text searching with fixed size buffer
-After further investigation I discovered that the overhead of searching each line didn't just come from  the `rure` iterator, but that special regex patterns introduced large overhead when starting the search. One example was the word character pattern `\w`, which respects possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in a large number of states @rust_regex_issue_1095. This state machine, although only compiled once, needs to be initialized in memory every time a search is starts. Disabling unicode support during the regex pattern compilation significantly improved performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.\
-One additional bug that I only tackled at this stage was to prevent regex pattern matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the fist matched line, if this succeeds too only this match is highlighted and printed.
+After further investigation I discovered that the overhead of searching each line didn't just come from  the `rure` iterator, but that special regex patterns introduced large overhead when starting the search. One example was the word character pattern `\w`, which has to respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in a large number of states @rust_regex_issue_1095. This state machine, although only compiled once, needs to be initialized in memory every time a search is started. Disabling unicode support during the regex pattern compilation significantly improves performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.
+
+One additional bug that I only tackled at this stage was to prevent regex matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the first matched line, if it succeeds too, only this match is highlighted and printed, otherwise it's a false positive.
 
 == Parallelization
 At this point most easy wins in single threaded optimization were off the table, so the next major performance improvements would come from using multiple threads. The most time consuming sections of the program are accessing the file system, and searching the text.
@@ -405,12 +410,12 @@ The directory walking remains mostly the same apart from searching files adhoc, 
 
 Since there are now multiple threads writing to `stdout` their output has to be synchronized so that lines from one file would not be interspersed with other ones.\
 There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.\
-The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to stdout. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.\
-The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization (`SinkBuf` in `src/atomic.zig`). Once the buffer is full access to stdout is locked using the underlying thread safe writer (`Sink` in `src/atomic.zig`) and the thread is free to write to it until the file is fully searched. While stdout is locked other workers can still access their thread-local output buffers.
+The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to `stdout`. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.\
+The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any locking (`SinkBuf` in `src/atomic.zig`). Once the buffer is full, access to `stdout` is locked using the underlying thread safe writer (`Sink` in `src/atomic.zig`) and the thread is free to write to it until the file is fully searched. While `stdout` is locked, other workers can still make progress and access their thread-local output buffers.
 
 With only text searching parallelized the search workers were consuming messages from the queue faster than paths could be added, so the goal was to speed up walking the file system with multiple threads.\
 This was heavily influenced by the Rust `ignore` crate @ignore_crate which is also used in `ripgrep` @ripgrep. A thread pool of walkers is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.\
-The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop of a directory iterator of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
+The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop off a directory of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
 
 #sourcecode[```zig
     self.alive_workers -= 1;
@@ -530,6 +535,7 @@ At the time I discovered the bug, it was already fixed on the Zig `master` branc
 I wasn't able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
 
 = Conclusion
+
 
 = Bibliography
 #bibliography(

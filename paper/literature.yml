@@ -1,3 +1,30 @@
+zigfast_logo:
+  type: Artwork
+  title: zigfast.png
+  url: https://github.com/ziglang/gotta-go-fast/commit/a117b3a120a41cb9f0c6ba2fd4a509360ef69185#diff-5e421635b77da50cca212633074ca9e36df775d1ac3cecd3a99b1b33aed45519
+  author: Andrew kelley
+  date: 2020-05-19
+
+zig_introduction:
+  type: Article
+  title: Introduction to the Zig Programming Language
+  url: https://andrewkelley.me/post/intro-to-zig.html
+  date: 2016-02-08
+  author: Andrew Kelley
+
+zig_postponed_again:
+  type: Article
+  title: The Upcoming Release Postponed Two More Weeks and Lacks Async Functions
+  url: https://ziglang.org/news/0.11.0-postponed-again/
+  date: 2023-07-19
+  author: Andrew Kelley
+
+zig_software_foundation:
+  type: Web
+  title: Sponsoring the Zig Software Foundation
+  url: https://ziglang.org/zsf/
+  date: 2024-01-04
+
 ziglang: &ziglang
   type: Web
   title: Zig
@@ -9,6 +36,13 @@ ziglang_downloads:
   title: Releases
   url: https://ziglang.org/download/
   date: 2024-01-04
+  parent: *ziglang
+
+ziglang_overview:
+  type: Web
+  title: In-depth Overview
+  url: https://ziglang.org/learn/overview/
+  date: 2024-01-05
   parent: *ziglang
 
 ziglang_getting_started:
@@ -101,6 +135,13 @@ zigdoc_std_gpa:
   title: GeneralPurposeAllocator source code
   url: https://ziglang.org/documentation/0.11.0/std/src/std/heap/general_purpose_allocator.zig.html
   date: 2024-01-04
+  parent: *zigdoc
+
+zigdoc_grammar:
+  type: Entry
+  title: Grammar
+  url: https://ziglang.org/documentation/master/#Grammar
+  date: 2024-01-05
   parent: *zigdoc
 
 ziglang_repo: &ziglang_repo
@@ -228,6 +269,12 @@ futex:
   type: Reference
   title: futex - fast userspace locking
   url: https://www.man7.org/linux/man-pages/man7/futex.7.html
+  date: 2024-01-05
+
+hyperfine:
+  type: Repository
+  title: hyperfine
+  url: https://github.com/sharkdp/hyperfine
   date: 2024-01-05
 
 ripgrep: &ripgrep
