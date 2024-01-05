@@ -385,23 +385,46 @@ After further investigation I discovered that the overhead of searching each lin
 One additional bug that I only tackled at this stage was to prevent regex pattern matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the fist matched line, if this succeeds too only this match is highlighted and printed.
 
 == Parallelization
-At this point most easy wins in single threaded optimization were off the table, so the next performance improvements would come from using multiple threads. The most time consuming sections of the program are accessing the file system, and searching the text.
+At this point most easy wins in single threaded optimization were off the table, so the next major performance improvements would come from using multiple threads. The most time consuming sections of the program are accessing the file system, and searching the text.
 
-Parallelization was implemented using a thread pool of search workers that would receive file paths using a atomically synchronized message queue. The directory walking remained mostly the same apart from searching files adhoc, they were now sent through the message queue.
+Parallelization of text searching was implemented using a thread pool of workers that would receive file paths through an atomically synchronized, ring-buffer message queue (`AtomicQueue` in `src/atomic.zig`). The message queue synchronization is implemented using a mutex for exclusive access and use a futex @futex as an event system to notify other workers when the state has changed. Workers wait for a new message from the queue and receive either a path to search or a stop signal:
+#sourcecode[```zig
+    while (true) {
+        var msg = ctx.queue.get();
+        switch (msg) {
+            .Some => |path| {
+                defer ctx.allocator.free(path.abs);
+                try searchFile(&ctx, text_buf, &line_buf, &path);
+            },
+            .Stop => break,
+        }
+    }
+```]
 
-The output of multiple threads now had to be synchronized so that lines printed from one file would not be interspersed with other ones.\
+The directory walking remains mostly the same apart from searching files adhoc, they were now sent through the message queue.
+
+Since there are now multiple threads writing to `stdout` their output has to be synchronized so that lines from one file would not be interspersed with other ones.\
 There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.\
 The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to stdout. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.\
-The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization. Once the buffer is full access to stdout is locked for other threads until the file is fully searched, but other workers can still access their thread-local output buffers.
+The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any synchronization (`SinkBuf` in `src/atomic.zig`). Once the buffer is full access to stdout is locked using the underlying thread safe writer (`Sink` in `src/atomic.zig`) and the thread is free to write to it until the file is fully searched. While stdout is locked other workers can still access their thread-local output buffers.
 
-Text searching had been parallelized the search workers were now emptying the message queue too quickly, so walking the file system with multiple threads was up next.\
-This was heavily influenced by the Rust @rustlang `ignore` by the same author as, and also used in ripgrep @ripgrep. A thread pool of "walkers" is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.
-A walker tries to pop of a directory iterator of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. Once all walkers are waiting for a new directory iterator all directories have been walked completely and the thread pool is stopped.
+With only text searching parallelized the search workers were consuming messages from the queue faster than paths could be added, so the goal was to speed up walking the file system with multiple threads.\
+This was heavily influenced by the Rust `ignore` crate @ignore_crate which is also used in `ripgrep` @ripgrep. A thread pool of walkers is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.\
+The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop of a directory iterator of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
+
+#sourcecode[```zig
+    self.alive_workers -= 1;
+    if (self.alive_workers == 0) {
+        self.state.store(@intFromEnum(State.Stop), std.atomic.Ordering.SeqCst);
+        Futex.wake(&self.state, std.math.maxInt(u32));
+        return .Stop;
+    }
+```]
 
 == Command line argument parsing
 Argument parsing makes use of tagged unions and `comptime`.
 
-There are two different types of arguments: flags and values, both of these are defined as `enum`s. `UserArgFlag`s don't require a value and are just boolean toggles. `UserArgValue`s require a value, for example a number, to be specified after them. `UserArgKind` is a tagged union that either contains one or the other.
+There are two different types of arguments: flags and values, both of these are defined as enums. While flags are just boolean toggles, values require for example a number, to be specified after them. `UserArgKind` is a tagged union that contains either one or the other:
 #sourcecode[```zig
     const UserArgKind = union(enum) {
         value: UserArgValue,
@@ -425,7 +448,7 @@ There are two different types of arguments: flags and values, both of these are 
     };
 ```]
 
-All user args are defined in an array, including their long form, an optional short form, a description and their union representation.
+All user arguments are defined in an array, including their long form, an optional short form, a description and their union representation:
 #sourcecode[```zig
     const USER_ARGS = [_]UserArg{
         .{
@@ -445,12 +468,10 @@ All user args are defined in an array, including their long form, an optional sh
     };
 ```]
 
-When parsing command line arguments this can be used to exhaustively match all possible valid inputs using a switch statement. When adding a new `enum` variant the compiler enforces it is handled in all switch statements that match the modified `enum`. This is the simplified switch statements that handles all arguments:
+When parsing command line arguments this can be used to exhaustively match all possible valid inputs using a switch statement. When adding a new enum variant the compiler enforces it is handled in all switch statements that match the modified enum. This is the simplified switch statements that handles all arguments:
 #sourcecode[```zig
     switch (user_arg.kind) {
         .value => |kind| {
-            ...
-
             switch (kind) {
                 .Context => {
                     opts.after_context = num;
@@ -460,8 +481,6 @@ When parsing command line arguments this can be used to exhaustively match all p
             }
         },
         .flag => |kind| {
-            ...
-
             switch (kind) {
                 .Hidden => opts.hidden = true,
                 ...
@@ -474,7 +493,7 @@ The help message is generated at `comptime`, using the list of possible argument
 Instead of a general purpose allocator a fixed buffer allocator had to be used, but otherwise the code could be written without taking any precautions.
 
 == Compiler bug
-With Zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed fine, bug in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an `enum`:
+With Zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed as expected, but in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an `enum`:
 #sourcecode[```zig
     const UserArgFlag = enum {
         Hidden,
@@ -488,7 +507,7 @@ With Zig `0.11.0` I encountered a bug in the compiler which would affect command
     };
 ```]
 
-The issue was fixed by specifying a concrete tag type to represent the `enum` instead of letting the compiler infer the type.
+The issue was fixed by specifying a concrete tag type to represent the enum instead of letting the compiler infer the type:
 #sourcecode[```diff
 @@ -27,12 +27,12 @@ const UserArgKind = union(enum) {
      flag: UserArgFlag,
@@ -507,7 +526,8 @@ The issue was fixed by specifying a concrete tag type to represent the `enum` in
      Color,
 ```]
 
-At the time I discovered the bug, it was already fixed on the Zig `master` branch.
+At the time I discovered the bug, it was already fixed on the Zig `master` branch.\
+I wasn't able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
 
 = Conclusion
 

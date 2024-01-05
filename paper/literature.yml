@@ -224,11 +224,24 @@ grep:
   url: https://www.gnu.org/software/grep/manual/grep.html
   date: 2024-01-03
 
-ripgrep:
+futex:
+  type: Reference
+  title: futex - fast userspace locking
+  url: https://www.man7.org/linux/man-pages/man7/futex.7.html
+  date: 2024-01-05
+
+ripgrep: &ripgrep
   type: Repository
   title: ripgrep
   url: https://github.com/BurntSushi/ripgrep/
   date: 2024-01-03
+
+ignore_crate:
+  type: Entry
+  title: ignore
+  url: https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore
+  date: 2024-01-05
+  parent: *ripgrep
 
 rust_regex: &rust_regex
   type: Repository
