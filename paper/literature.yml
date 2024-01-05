@@ -2,42 +2,112 @@ ziglang: &ziglang
   type: Web
   title: Zig
   url: https://ziglang.org/
+  date: 2024-01-03
+
+ziglang_downloads:
+  type: Web
+  title: Releases
+  url: https://ziglang.org/download/
+  date: 2024-01-04
+  parent: *ziglang
+
+ziglang_getting_started:
+  type: Web
+  title: Getting Started
+  url: https://ziglang.org/learn/getting-started/
+  date: 2024-01-04
+  parent: *ziglang
+
+ziglang_buildsystem:
+  type: Web
+  title: Zig Build System
+  url: https://ziglang.org/learn/build-system/
+  date: 2024-01-04
+  parent: *ziglang
 
 zigdoc: &zigdoc
   type: Reference
   title: Zig Language Reference
-  serial-number: v0.11.0
   url: https://ziglang.org/documentation/0.11.0/
+  serial-number: v0.11.0
+  date: 2024-01-03
   parent: *ziglang
 
 zigdoc_integers:
   type: Entry
   title: Integers
   url: https://ziglang.org/documentation/0.11.0/#Integers
+  date: 2024-01-03
   parent: *zigdoc
 
 zigdoc_arrays:
   type: Entry
   title: Arrays
   url: https://ziglang.org/documentation/0.11.0/#Arrays
+  date: 2024-01-03
   parent: *zigdoc
 
 zigdoc_pointers:
   type: Entry
   title: Pointers
   url: https://ziglang.org/documentation/0.11.0/#Pointers
+  date: 2024-01-03
   parent: *zigdoc
 
 zigdoc_slices:
   type: Entry
   title: Slices
   url: https://ziglang.org/documentation/0.11.0/#Slices
+  date: 2024-01-03
+  parent: *zigdoc
+
+zigdoc_tagged_union:
+  type: Entry
+  title: Tagged union
+  url: https://ziglang.org/documentation/0.11.0/#Tagged-union
+  date: 2024-01-03
+  parent: *zigdoc
+
+zigdoc_comptime:
+  type: Entry
+  title: comptime
+  url: https://ziglang.org/documentation/0.11.0/#comptime
+  date: 2024-01-04
+  parent: *zigdoc
+
+zigdoc_defer:
+  type: Entry
+  title: defer
+  url: https://ziglang.org/documentation/0.11.0/#defer
+  date: 2024-01-04
+  parent: *zigdoc
+
+zigdoc_errdefer:
+  type: Entry
+  title: errdefer
+  url: https://ziglang.org/documentation/0.11.0/#errdefer
+  date: 2024-01-04
+  parent: *zigdoc
+
+zigdoc_vectors:
+  type: Entry
+  title: Vectors
+  url: https://ziglang.org/documentation/0.11.0/#Vectors
+  date: 2024-01-04
+  parent: *zigdoc
+
+zigdoc_std_gpa:
+  type: Entry
+  title: GeneralPurposeAllocator source code
+  url: https://ziglang.org/documentation/0.11.0/std/src/std/heap/general_purpose_allocator.zig.html
+  date: 2024-01-04
   parent: *zigdoc
 
 ziglang_repo: &ziglang_repo
   type: Repository
   title: Zig repository
   url: https://github.com/ziglang/zig
+  date: 2024-01-03
   parent: *ziglang
 
 ziglang_issue_12046:
@@ -45,39 +115,143 @@ ziglang_issue_12046:
   title: Invalid debug info when linking to system library.
   url: https://github.com/ziglang/zig/issues/12046
   serial-number: 12046
+  date: 2024-01-03
   parent: *ziglang_repo
 
 zls:
   type: Repository
   title: zls
   url: https://github.com/zigtools/zls
+  date: 2024-01-03
 
 zigup:
   type: Repository
   title: zigup
   url: https://github.com/marler8997/zigup
+  date: 2024-01-03
 
 rustlang:
   type: Web
   title: Rust
   url: https://www.rust-lang.org/
+  date: 2024-01-03
+
+rustbook: &rustbook
+  type: Web
+  title: The Rust Programming Language
+  url: https://doc.rust-lang.org/book/title-page.html
+  date: 2024-01-04
+  author:
+    - Steve Klabnik
+    - Carol Nichols
+
+rustbook_enums:
+  type: Entry
+  title: Enums and Pattern Matching
+  url: https://doc.rust-lang.org/book/ch06-00-enums.html
+  date: 2024-01-04
+  parent: *rustbook
+
+rustbook_error_handling: &rustbook_error_handling
+  type: Entry
+  title: Error Handling
+  url: https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html
+  date: 2024-01-04
+  parent: *rustbook
+
+rustbook_try:
+  type: Entry
+  title: 'A Shortcut for Propagating Errors: the ? Operator'
+  url: https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html#a-shortcut-for-propagating-errors-the--operator
+  date: 2024-01-04
+  parent: *rustbook_error_handling
+
+rustref: &rustref
+  type: Reference
+  title: The Rust Reference
+  url: https://doc.rust-lang.org/reference/introduction.html
+  date: 2024-01-04
+
+rustref_const:
+  type: Entry
+  title: Constant evaluation
+  url: https://doc.rust-lang.org/reference/const_eval.html
+  date: 2024-01-04
+  parent: *rustref
+
 
 kotlinlang:
   type: Web
   title: Kotlin
   url: https://kotlinlang.org/
+  date: 2024-01-03
 
-creference:
-  type: Reference
-  title: C reference
-  url: https://en.cppreference.com/w/c
-
-cppreference:
+cppref: &cppref
   type: Reference
   title: C++ reference
   url: https://en.cppreference.com/w/
+  date: 2024-01-03
+
+cppref_raii:
+  type: Entry
+  title: RAII
+  url: https://en.cppreference.com/w/cpp/language/raii
+  date: 2024-01-04
+  parent: *cppref
+
+cppref_constexpr:
+  type: Entry
+  title: constexpr specifier
+  url: https://en.cppreference.com/w/cpp/language/constexpr
+  date: 2024-01-04
+  parent: *cppref
 
 neovim:
   type: Web
   title: neovim
   url: https://neovim.io/
+  date: 2024-01-03
+
+llvm:
+  type: Web
+  title: LLVM
+  url: https://llvm.org/
+  date: 2024-01-03
+
+grep:
+  type: Reference
+  tile: GNU Grep
+  url: https://www.gnu.org/software/grep/manual/grep.html
+  date: 2024-01-03
+
+ripgrep:
+  type: Repository
+  title: ripgrep
+  url: https://github.com/BurntSushi/ripgrep/
+  date: 2024-01-03
+
+rust_regex: &rust_regex
+  type: Repository
+  title: rust-lang/regex
+  url: https://github.com/rust-lang/regex
+  date: 2024-01-03
+  parent:
+    type: Repository
+    title: BurntSushi/regex
+    url: https://github.com/BurntSushi/regex
+    date: 2024-01-03
+
+rust_regex_issue_1095:
+  type: Web
+  title: Simple regex like \w{256} take tens of milliseconds to compile
+  url: https://github.com/rust-lang/regex/issues/1095
+  serial-number: 1095
+  date: 2024-01-04
+  parent: *rust_regex
+
+rebar:
+  type: Repository
+  title: rebar
+  author: Andrew Gallant (BurntSushi)
+  date: 2024-01-03
+  url: https://github.com/BurntSushi/rebar

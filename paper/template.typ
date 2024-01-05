@@ -4,8 +4,16 @@
 #let project(title: "", author: "", logo: none, body) = {
   // Set the document's basic properties.
   set document(author: author, title: title)
-  set page(numbering: "1", number-align: center)
-  set text(font: "Linux Libertine", lang: "en")
+  set page(
+      paper: "a4",
+      margin: (x: 2.5cm, y: 1.5cm),
+      numbering: "1",
+      number-align: center,
+  )
+  set text(
+      font: "Linux Libertine",
+      lang: "en",
+  )
   set heading(numbering: "1.")
 
   // Title page.
@@ -38,6 +46,7 @@
 
   // Prettier raw text
   show raw.where(lang: none, block: false): r => {
+    // -- blue highlighted --
     let words = r.text.split(" ")
     for (idx, word) in words.enumerate() {
       let w-radius = if words.len() == 1 {
@@ -58,6 +67,12 @@
         text(fill: rgb("#4050d0"), word),
       )
     }
+
+    // -- bold --
+    // text(weight: "bold", r.text)
+
+    // -- quoted -- 
+    // quote(r.text)
   }
 
   body
