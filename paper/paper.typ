@@ -99,7 +99,8 @@ The code prints the size of the pointer and the string it references:
     size: 8, 'null terminated string'
 ```]
 All three slice/pointer types reference the same data, but in a different way. Variant 1 uses the fat pointer approach described above. Variant 2 uses the same approach but also upholds the constraint that the end of the slice is terminated by a null-byte sentinel. Variant 3 only stores a memory address and relies upon the null-byte sentinel to compute the length of the referenced data when needed.\
-On 64-bit target platforms the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it does not store an additional length field.\
+On 64-bit target platforms the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it does not store an additional length field.
+
 A limitation of sentinel terminated slices or pointers is that they cannot reference arbitrary parts of an array. Trying to do so fails with the following message:
 #output[```
     src/main.zig:10:62: error: expected type '[:0]const u8', found '*const [13]u8'
@@ -108,34 +109,7 @@ A limitation of sentinel terminated slices or pointers is that they cannot refer
     src/main.zig:10:62: note: destination pointer requires '0' sentinel
 ```]
 
-== Type inference
-The type of Zig variables is inferred using only directly assigned values. A type can optionally be specified, and is required in some cases. For example when an integer literal is assigned to a mutable variable, its exact type must be specified.
-When the type of a `struct` is known, such as when passing it to a function, its name can be omitted and an anonymous literal can be used:
-#sourcecode[```zig
-    const Foo = struct {
-        a: i32,
-        b: bool = false,
-    };
-    fn doSomething(value: Foo) void { ... }
-
-    doSomething(.{ .a = 21 });
-```]
-The same is also true for an `enum` and a tagged `union`. When the type is known, the name of the `enum` can be omitted and only the variant needs to written out:
-#sourcecode[```zig
-    const Bar = enum {
-        One,
-        Two,
-        Three,
-    };
-    const BAR_THREE: Bar = .Three;
-
-    const Value = union(enum) {
-        Int: u32,
-        Float: f32,
-        Bool: bool,
-    };
-    const INT_VAL: Value = .{ .Int = 324 };
-```]
+#pagebreak(weak: true)
 
 == Tagged unions
 In Zig tagged unions are very similar to Rust enums @rustbook_enums. The tag can be either an existing enum or inferred from the union definition itself. If an existing enum is used as a tag, the compiler enforces that every variant that the enum defines is present in the union declaration. Tagged unions can be coerced to their enum tag, and an enum tag can be coerced to a tagged union when it is known at `comptime` and the union variant type has only one possible value such as `void`. @zigdoc_tagged_union
@@ -155,6 +129,34 @@ In Zig tagged unions are very similar to Rust enums @rustbook_enums. The tag can
     const token_type: TokenType = ident_token;
     // `Token.Dot` has only one value
     const dot_token: Token = TokenType.Dot;
+```]
+
+== Type inference
+The type of Zig variables is inferred using only directly assigned values. A type can optionally be specified, and is required in some cases. For example when an integer literal is assigned to a mutable variable, its exact type must be specified.
+When the type of a `struct` is known, such as when passing it to a function, its name can be omitted and an anonymous literal can be used:
+#sourcecode[```zig
+    const Foo = struct {
+        a: i32,
+        b: bool = false,
+    };
+    fn doSomething(value: Foo) void { ... }
+
+    doSomething(.{ .a = 21 });
+```]
+The same is also true for an `enum` and a tagged `union`. When the type is known, the name of the `enum` can be omitted and only the variant needs to written out:
+#sourcecode[```zig
+    const Bar = enum {
+        One,
+        Two,
+    };
+    const BAR_TWO: Bar = .Two;
+
+    const Value = union(enum) {
+        Int: u32,
+        Float: f32,
+        Bool: bool,
+    };
+    const INT_VAL: Value = .{ .Int = 324 };
 ```]
 
 == Control flow
@@ -251,6 +253,8 @@ To make this more ergonomic Zig provides `defer` statements, which allow running
     }
 ```]
 
+#pagebreak(weak: true)
+
 The `errdefer` statement runs code *only* when an error is returned from the scope, this can be useful when dealing with a multi step initialization process that can fail, and intermediate resources need to be cleaned up:  @zigdoc_errdefer
 #sourcecode[```zig
     fn openAndPrepareFile() !File {
@@ -263,7 +267,7 @@ The `errdefer` statement runs code *only* when an error is returned from the sco
 If the function succeeds the file is returned from it, so it should not be closed. If it fails while seeking and returns an error, the `errdefer` statement is executed and the file is closed as to not leak any resources.
 
 == Memory management
-Zig does not include a garbage collector and uses a very explicit manual memory management strategy.\
+Zig does not include a garbage collector and uses a very explicit manual memory management strategy.
 Memory is manually allocated and deallocated via `Allocator`s that are choosen and instantiated by the user.
 Data structures or functions which might allocate require an allocator to be passed explicitly. The standard library includes a range of allocators fit for different use cases, ranging from general purpose bucket allocators, bump- or arena allocators, to fixed buffer allocators.\
 Memory allocation may fail, and out of memory errors must be handled. Memory deallocation must always succeed.
@@ -285,14 +289,7 @@ This can be used to do expensive calculations, generate lookup tables, or uphold
         if (n == 0 or n == 1) {
             return 1;
         }
-        var a = 1;
-        var b = 1;
-        for (1..n) |_| {
-            const c = a + b;
-            a = b;
-            b = c;
-        }
-        return b;
+        return fibonacci(n - 1) + fibonacci(n - 2);
     }
 ```]
 
@@ -329,6 +326,8 @@ Neither the Zig language itself, nor the std library directly define a string da
 With Zig being a young language, the eco system in general is still a little immature.
 To date there is no regex library written in zig that has feature parity with established regex engines.
 Zig `0.11.0` does not include support for `async` functions @zig_postponed_again.
+
+#pagebreak(weak: true)
 
 = Development process
 Since the scope of the program was predetermined, I mainly focused on performance.
@@ -373,6 +372,8 @@ When linking C libraries, Zig is not able to include debug symbols, so crash mes
     Unwind error at address `:0x2ebaef` (error.InvalidDebugInfo), trace may be incomplete
 ```]
 This is a known issue @ziglang_issue_12046.
+
+#pagebreak(weak: true)
 
 The C functions can then be imported using the `@cImport` intrinsic:
 #sourcecode[```zig
@@ -461,11 +462,7 @@ There are two different types of arguments: flags and values, both of these are 
         Hidden,
         FollowLinks,
         Color,
-        NoHeading,
-        IgnoreCase,
-        Debug,
-        NoUnicode,
-        Help,
+        ...
     };
 ```]
 
@@ -513,6 +510,8 @@ When parsing command line arguments this can be used to exhaustively match all p
 The help message is generated at `comptime`, using the list of possible arguments.\
 Instead of a general purpose allocator a fixed buffer allocator had to be used, but otherwise the code could be written without taking any precautions.
 
+#pagebreak(weak: true)
+
 == Compiler bug
 With Zig `0.11.0` I encountered a bug in the compiler which would affect command line argument parsing. In debug mode arguments were parsed as expected, but in release mode the `--ignore-case` flag would be parsed as the `--hidden` flag. All flags are defined as an `enum`:
 #sourcecode[```zig
@@ -554,6 +553,8 @@ I was not able to find a github issue or a pull request related to this bug, but
 While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still a unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
 
 But this is done for a reason, Zig allows competent programmers to write high performance code while taking full control of the system. It does so while being more ergonomic than C and being less constraining than Rust.
+
+#pagebreak(weak: true)
 
 = Bibliography
 #bibliography(
