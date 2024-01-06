@@ -6,6 +6,8 @@ import subprocess
 import sys
 from collections import defaultdict
 from typing import Set
+from dataclasses import dataclass
+import json
 
 
 class Flag:
@@ -118,6 +120,14 @@ class Match:
         return hash((self.line, self.duplicate))
 
 
+@dataclass
+class BenchResult:
+    """All measurements in milliseconds"""
+    min: float
+    avg: float
+    max: float
+
+
 def parse(stdout: str, with_headings: bool) -> Set[Match]:
     def parse_with_headings():
         current_file = None
@@ -184,11 +194,16 @@ def make_cmd(cmd: str, pattern: str, path: str, args: [Flag | str]):
     return full_cmd
 
 
-def test(name: str, reference_cmd: [str], test_cmd: [str], verbose: bool) -> bool:
+def test(name: str, reference_cmd: [str], test_cmd: [str], verbose: bool, bench: bool) -> (bool, (BenchResult, BenchResult)):
     status_str = f"{Ansi.PURPLE}{name}{Ansi.RESET}"
 
     def execute(cmd: [str]) -> subprocess.CompletedProcess:
         print(f"\r{Ansi.CLEAR}{status_str}...running {' '.join(cmd)}", end='', flush=True)
+        if bench:
+            hyperfine_cmd = cmd[:]
+            hyperfine_cmd[-2] = f"'{cmd[-2]}'"
+            str_cmd = ' '.join(hyperfine_cmd)
+            cmd = ["hyperfine", "--output=pipe", "--style=none", "--export-json=/dev/stdout", str_cmd]
         result = subprocess.run(cmd, capture_output=True)
         if result.returncode != 0:
             print(f"\r{Ansi.CLEAR}{status_str}...[{Ansi.RED}ERR{Ansi.RESET}]")
@@ -198,15 +213,29 @@ def test(name: str, reference_cmd: [str], test_cmd: [str], verbose: bool) -> boo
             print(result.stderr.decode())
         return result
 
+    def decode_bench_result(proc: subprocess.CompletedProcess):
+        output = proc.stdout.decode()
+        r = json.loads(output)['results'][0]
+        return BenchResult(
+            float(r['min']) * 1000,
+            float(r['mean']) * 1000,
+            float(r['max']) * 1000
+        )
+
     reference_result = execute(reference_cmd)
     if reference_result.returncode != 0:
         print(f"\r{Ansi.CLEAR}{status_str}...[{Ansi.RED}ERR{Ansi.RESET}]")
-        return False
+        return False, None
 
     test_result = execute(test_cmd)
     if test_result.returncode != 0:
         print(f"\r{Ansi.CLEAR}{status_str}...[{Ansi.RED}ERR{Ansi.RESET}]")
-        return False
+        return False, None
+
+    if bench:
+        results = (decode_bench_result(reference_result), decode_bench_result(test_result))
+        print(f"\r{Ansi.CLEAR}{status_str}...[{Ansi.GREEN}OK{Ansi.RESET}]")
+        return True, results
 
     expected_matches = parse(reference_result.stdout.decode(), reference_cmd[0] != "grep" and "--no-heading" not in test_cmd)
     got_matches = parse(test_result.stdout.decode(), test_cmd[0] != "grep" and "--no-heading" not in test_cmd)
@@ -229,10 +258,10 @@ def test(name: str, reference_cmd: [str], test_cmd: [str], verbose: bool) -> boo
                 print(f"\t{Ansi.RED}-{Ansi.RESET}{match}")
         else:
             print(f"\tmissing {len(missing_matches)} matches and found {len(false_matches)} false matches")
-        return False
+        return False, None
     else:
         print(f"\r{Ansi.CLEAR}{status_str}...[{Ansi.GREEN}OK{Ansi.RESET}]")
-        return True
+        return True, None
 
 
 def main():
@@ -258,6 +287,10 @@ def main():
                         action='store_true',
                         help="immediately exit when a test fails",
                         default=False)
+    parser.add_argument("--bench",
+                        action='store_true',
+                        help="use hyperfine to run the tests as a benchmark",
+                        default=False)
 
     args, rest = parser.parse_known_args()
 
@@ -267,7 +300,7 @@ def main():
                 make_cmd(args.command, pattern, os.path.join(args.data_dir, target), [*rest, *extra_flags]))
 
     def t(test_name: str, pattern: str, target: str, *flags: Flag | str):
-        return test_name, lambda: test(test_name, *make_cmds(pattern, target, list(flags)), args.verbose)
+        return test_name, lambda: test(test_name, *make_cmds(pattern, target, list(flags)), args.verbose, args.bench)
 
     tests = [
         t("literal_linux", "PM_RESUME", "linux"),
@@ -306,14 +339,18 @@ def main():
 
     tests_passed = 0
     tests_failed = 0
+    bench_results = []
 
     for (name, test_fn) in tests:
         if args.test is not None:
             if not re.search(args.test, name):
                 continue
 
-        if test_fn():
+        passed, results = test_fn()
+        if passed:
             tests_passed += 1
+            if args.bench:
+                bench_results.append((name, results))
         else:
             tests_failed += 1
             if args.fail_fast:
@@ -327,6 +364,20 @@ def main():
     tests_skipped = (len(tests) - (tests_passed + tests_failed))
 
     print(f"{tests_passed} passed; {tests_failed} failed; {tests_skipped} skipped")
+
+    if tests_failed == 0 and args.bench:
+        ref_name = "ripgrep" if args.ripgrep else "grep"
+        print(f'| {"":50} | {ref_name:21} | {"searcher":21} | {"":5} |')
+        print(f'| {"name":50} | {"min":5} | {"avg":5} | {"max":5} | {"min":5} | {"avg":5} | {"max":5} | {"%":5} |')
+        print(f'|-{"":->50}-|-{"":->5}-|-{"":->5}-|-{"":->5}-|-{"":->5}-|-{"":->5}-|-{"":->5}-|-{"":->5}-|')
+        sum_percent = 0
+        for name,res in bench_results:
+            ref, searcher = res
+            percent = (searcher.avg / ref.avg) * 100
+            sum_percent += percent
+            print(f'| {name:50} | {int(ref.min):5} | {int(ref.avg):5} | {int(ref.max):5} | {int(searcher.min):5} | {int(searcher.avg):5} | {int(searcher.max):5} | {int(percent):5} |')
+        avg_percent = int(sum_percent / len(bench_results))
+        print(f"Avg runtime compared to {ref_name}: {avg_percent}%")
 
     sys.exit(tests_failed)
 
