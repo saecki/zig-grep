@@ -321,3 +321,9 @@ rebar:
   author: Andrew Gallant (BurntSushi)
   date: 2024-01-03
   url: https://github.com/BurntSushi/rebar
+
+flamegraph:
+  type: Web
+  title: Flame Graphs
+  url: https://brendangregg.com/flamegraphs.html
+  date: 2020-10-31

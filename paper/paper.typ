@@ -237,7 +237,7 @@ Similar to Rust @rustbook_try Zig has a `try` operator that either returns the e
 ```]
 
 == Defer
-There are no destructors in Zig, so unlike C++ where the RAII @cppref_raii model is often used to make objects manage their resources automatically, resources have to be managed manually. A commonly used pattern to manage resources is for an object to define `init` and a `deinit` procedures, which have to be called manually.
+There are no constructors or destructors in Zig, so unlike C++ where the RAII @cppref_raii model is often used to make objects manage their resources automatically, resources have to be managed manually. A commonly used pattern to manage resources is for an object to define `init` and a `deinit` procedures, which have to be called manually. In that case the `init` procedure is a static member function on the type that returns an instance of the type, and the `deinit` procedure is a method of the object.
 
 To make this more ergonomic Zig provides `defer` statements, which allow running cleanup code when a value goes out of scope. If multiple `defer` statements are defined, they are run in reverse declaration order. This allows the deinitialization code to be directly below the initialization: @zigdoc_defer
 #sourcecode[```zig
@@ -309,7 +309,7 @@ An equivalent Zig `struct` would be defined as a function taking a `comptime` ty
         }
     }
 ```]
-Note that ArrayList is another such function defined in the std library.
+Note that ArrayList is another such function defined in the standard library.
 
 == SIMD
 In addition to the automatic vectorization of code that the LLVM @llvm optimizer does, Zig also provides a way to explicitly define vector operations, using the `@Vector` intrinsic, that will compile down to target specific SIMD operations: @zigdoc_vectors
@@ -320,8 +320,8 @@ In addition to the automatic vectorization of code that the LLVM @llvm optimizer
 ```]
 
 == Ecosystem
-Compared to C++, Java, or Rust the std library of Zig is quite minimal.
-Neither the Zig language itself, nor the std library directly define a string datatype. String literals are represented as byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them.
+Compared to C++, Java, or Rust the standard library of Zig is quite minimal.
+Neither the Zig language itself, nor the standard library directly define a string datatype. String literals are represented as byte slices (`[]const u8`), which allows using the whole range of `std.mem.*` functions to operate on them.
 
 With Zig being a young language, the eco system in general is still a little immature.
 To date there is no regex library written in zig that has feature parity with established regex engines.
@@ -332,8 +332,8 @@ Zig `0.11.0` does not include support for `async` functions @zig_postponed_again
 = Development process
 Since the scope of the program was predetermined, I mainly focused on performance.
 
-== Diretory walking
-The Zig std library provides `IterableDir`, an iterator for traversing a directory in a depth first manner, but unfortunately that approach does not allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for walking directories and modified it slightly to allow filtering out hidden directories.
+== Directory walking
+The Zig standard library provides `IterableDir`, an iterator for traversing a directory in a depth first manner, but unfortunately that approach does not allow filtering of searched directories. To overcome that limitation I mostly copied the standard library function for walking directories and modified it slightly to allow filtering out hidden directories.
 
 == Linking and using the regex engine
 Since there are no usable regex engines written in Zig I had to find a library written in another language. I decided on using the Rust regex library (`rure`) @rust_regex through its C API, because it is a standalone project, easy to build @rustbook_cargo_build, and reasonably fast @rebar.\
@@ -366,7 +366,7 @@ The dependencies are taken straight from the `rure` compile script:
     # -lutil -ldl -lpthread -lgcc_s -lc -lm -lrt -lutil -lrure
 ```]
 
-When linking C libraries, Zig is not able to include debug symbols, so crash messages that would normally be informative, only show memory addresses:
+When linking C libraries, Zig is not able to include debug symbols, so crash messages that would normally be informative, only show memory addresses: <debug_symbols>
 #output[```
     thread 20843 panic: index out of bounds: index 14958, len 14948
     Unwind error at address `:0x2ebaef` (error.InvalidDebugInfo), trace may be incomplete
@@ -423,7 +423,7 @@ Parallelization of text searching was implemented using a thread pool of workers
     }
 ```]
 
-The directory walking remains mostly the same apart from searching files adhoc, they were now sent through the message queue.
+The directory walking remains mostly the same apart from searching files ad hoc, they were now sent through the message queue.
 
 Since there are now multiple threads writing to `stdout` their output has to be synchronized so that lines from one file would not be interspersed with other ones.\
 There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.\
@@ -432,7 +432,7 @@ The final implementation uses a hybrid of the two, each thread has a fixed size 
 
 With only text searching parallelized the search workers were consuming messages from the queue faster than paths could be added, so the goal was to speed up walking the file system with multiple threads.\
 This was heavily influenced by the Rust `ignore` crate @ignore_crate which is also used in `ripgrep` @ripgrep. A thread pool of walkers is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.\
-The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop off a directory of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries enqueueing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
+The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop off a directory of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries, enqueuing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
 
 #sourcecode[```zig
     self.alive_workers -= 1;
@@ -549,8 +549,18 @@ The issue was fixed by specifying a concrete tag type to represent the enum inst
 At the time I discovered the bug, it was already fixed on the Zig `master` branch.\
 I was not able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
 
+#pagebreak(weak: true)
+
 = Conclusion
-While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still a unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
+== Program
+Since the Zig compiler as of version `0.11.0` is not able to genrate debug symbols when a C library is linked, I was not able to profile the program more thoroughly. I would have liked to look at a `flamegraph` @flamegraph and more detailed timing information to optimize the application.
+
+The program also currently synchronizes output for entire files, even if the `--no-heading` option is enabled. It should be faster to only synchronize output for lines when that is the case. Especially when a large file might be blocking other threads from progressing to the next file, because it has filled its output buffer and prevents them from writing to `stdout`.
+
+Apart from that learning Zig was an interesting journey, which definitely was a breath of fresh air for someone who mostly writes Rust code. I was able to write a program that is only 2 times as slow as `ripgrep` @ripgrep when run on test cases provided by the task @bench.
+
+== Zig
+While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still an unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
 
 But this is done for a reason, Zig allows competent programmers to write high performance code while taking full control of the system. It does so while being more ergonomic than C and being less constraining than Rust.
 
@@ -562,3 +572,54 @@ But this is done for a reason, Zig allows competent programmers to write high pe
     title: none,
     style: "ieee"
 )
+
+#pagebreak(weak: true)
+
+= Benchmark results
+<bench>
+
+The raw benchmark output can be found in the `bench` directory.
+
+Benchmarks were run using the following command:
+#sourcecode[```sh
+python test/test.py --ripgrep -v --bench --fail-fast -d test/data ./zig-out/bin/zig-grep
+```]
+
+== Result from a thinkpad with an r7 5800u and 16Gb ram
+#table(
+    columns: (6fr, 3fr, 3fr, 1fr),
+    align: center,
+    [], [ripgrep [ms]], [searcher [ms]], [],
+)
+#v(0fr)
+#table(
+    columns: (6fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr),
+    align: (x, y) => if x > 0 { right } else { left },
+    [name], [min], [avg], [max], [min], [avg], [max], [%],
+    [literal_linux], [149], [162], [211], [341], [346], [360], [213],
+    [literal_linux_hidden], [174], [179], [191], [405], [417], [430], [231],
+    [linux_literal_ignore_case], [172], [176], [185], [391], [400], [405], [227],
+    [linux_pattern_prefix], [164], [168], [179], [381], [394], [398], [234],
+    [linux_pattern_prefix_with_context], [171], [174], [181], [383], [394], [399], [225],
+    [linux_pattern_prefix_ignore_case], [179], [186], [192], [431], [446], [457], [239],
+    [linux_pattern_suffix], [172], [178], [184], [528], [537], [544], [301],
+    [linux_pattern_suffix_with_context], [194], [198], [206], [547], [562], [569], [282],
+    [linux_pattern_suffix_ignore_case], [183], [191], [195], [573], [588], [594], [307],
+    [linux_word], [163], [170], [177], [375], [389], [397], [229],
+    [linux_word_with_heading], [164], [168], [179], [378], [387], [392], [230],
+    [linux_word_ignore_case], [178], [181], [188], [618], [636], [646], [350],
+    [linux_no_literal], [379], [385], [386], [596], [609], [618], [158],
+    [linux_no_literal_ignore_case], [373], [386], [397], [599], [614], [657], [159],
+    [linux_alternatives], [173], [177], [184], [393], [402], [407], [226],
+    [linux_alternatives_with_heading], [172], [177], [184], [393], [400], [407], [226],
+    [linux_alternatives_ignore_case], [200], [203], [206], [420], [427], [432], [210],
+    [subtitles_literal], [7614], [10099], [12845], [9681], [9931], [10534], [98],
+    [subtitles_literal_ignore_case], [8288], [9027], [9977], [9969], [10276], [11202], [113],
+    [subtitles_alternatives], [7959], [9245], [10024], [10435], [10646], [11088], [115],
+    [subtitles_alternatives_ignore_case], [8973], [9735], [10353], [12594], [12921], [13717], [132],
+    [subtitles_surrounding_words], [8186], [9026], [9742], [9737], [9910], [10160], [109],
+    [subtitles_surrounding_words_ignore_case], [7959], [8795], [9736], [10451], [10740], [11166], [122],
+    [subtitles_no_literal], [24069], [24889], [25574], [27419], [27628], [27981], [111],
+    [subtitles_no_literal_ignore_case], [24592], [25243], [26059], [27501], [27692], [28037], [109],
+)
+Average runtime compared to ripgrep: 198%.
