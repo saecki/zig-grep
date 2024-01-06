@@ -551,7 +551,9 @@ At the time I discovered the bug, it was already fixed on the Zig `master` branc
 I was not able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
 
 = Conclusion
+While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still a unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
 
+But this is done for a reason, Zig allows competent programmers to write high performance code while taking full control of the system. It does so while being more ergonomic than C and being less constraining than Rust.
 
 = Bibliography
 #bibliography(

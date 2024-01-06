@@ -5,7 +5,7 @@
     set document(author: author, title: title)
     set page(
         paper: "a4",
-        margin: (x: 2.5cm, top: 2.0cm, bottom: 1.5cm),
+        margin: (x: 2.5cm, y: 2.5cm),
         numbering: "1",
         number-align: center,
     )
