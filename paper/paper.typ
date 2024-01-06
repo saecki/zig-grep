@@ -1,35 +1,49 @@
 #import "template.typ": *
-#import "@preview/codelst:1.0.0": sourcecode, code-frame
+#import "@preview/codelst:1.0.0": sourcecode
 
-#let output(content) = {
-    sourcecode(
-        numbering: none,
-        frame: code-frame.with(
-            fill: luma(240),
-            stroke: none,
-            inset: (left: 1.8em, right: .45em, y: .65em)
-        ),
-        content,
-    )
+#let title = "Writing a grep like program in Zig"
+#let author = "Tobias Schmitz"
+#show: project.with(title: title, author: author)
+
+// Title page
+#{
+    set page(numbering: none)
+    set align(center)
+
+    v(1.2fr)
+    image("zigfast.png", width: 80%)
+    cite(<zigfast_logo>)
+    v(1.2fr)
+
+    text(2em, title)
+    v(0.6fr)
+    
+    text(1.6em, "Seminar Programming Languages")
+    v(0.6fr)
+
+    text(1.2em, weight: "bold", author)
+    v(0.3fr)
+
+    text(1.2em, datetime.today().display())
+    v(1.2fr)
 }
 
-#show: project.with(
-  title: "Seminar Programmiersprachen im Vergleich - Zig",
-  author: "Tobias Schmitz",
-  logo: "zigfast.png",
-  logo_tag: <zigfast_logo>,
-)
+// Outline.
+#outline(indent: true)
+#pagebreak()
+
+// Main body.
+#set par(justify: true)
 
 = Introduction
 The objective of this seminar was getting to know a new programming language by writing a simple grep @grep like program.
 
 = Language
-== About
 Zig is a general-purpose compiled systems programming language @ziglang.
 It was initially developed by Andrew Kelley and released in 2016 @zig_introduction.
 Today development is funded by the Zig software foundation (ZSF), which is a nonprofit (`501(c)(3)`) corporation stationed in New York @zig_software_foundation.
 
-Zig is placed as a successor to C, it is an intentionally small and simple language, with it's whole syntax fitting in a 500 line PEG grammar file @zigdoc_grammar. If focuses on readability and maintainability restricting the control flow only to language keywords and function calls @ziglang_overview.
+Zig is placed as a successor to C, it is an intentionally small and simple language, with its whole syntax fitting in a 500 line PEG grammar file @zigdoc_grammar. If focuses on readability and maintainability restricting the control flow only to language keywords and function calls @ziglang_overview.
 
 == Toolchain
 Installation was as simple as downloading the release tar archive from the downloads section of the Zig website @ziglang_downloads, extracting the toolchain, and symlinking the binary onto a `$PATH`. There is also a community project named `zigup` @zigup which is allows installing and managing multiple versions of the Zig compiler.
@@ -85,7 +99,7 @@ The code prints the size of the pointer and the string it references:
     size: 8, 'null terminated string'
 ```]
 All three slice/pointer types reference the same data, but in a different way. Variant 1 uses the fat pointer approach described above. Variant 2 uses the same approach but also upholds the constraint that the end of the slice is terminated by a null-byte sentinel. Variant 3 only stores a memory address and relies upon the null-byte sentinel to compute the length of the referenced data when needed.\
-On 64-bit target platforms the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it doesn't store an additional length field.\
+On 64-bit target platforms the first and the second slice type have a size of 16 bytes, 8 bytes for the pointer and 8 additional bytes for the length. The sentinel terminated pointer only has a size of 8 bytes, since it does not store an additional length field.\
 A limitation of sentinel terminated slices or pointers is that they cannot reference arbitrary parts of an array. Trying to do so fails with the following message:
 #output[```
     src/main.zig:10:62: error: expected type '[:0]const u8', found '*const [13]u8'
@@ -95,8 +109,8 @@ A limitation of sentinel terminated slices or pointers is that they cannot refer
 ```]
 
 == Type inference
-The type of Zig variables is inferred using only directly assigned values. A type can optionally be specified, and is required in some cases. For example when an integer literal is assigned to a mutable variable, it's exact type must be specified.
-When the type of a `struct` is known, such as when passing it to a function, it's name can be omitted and an anonymous literal can be used:
+The type of Zig variables is inferred using only directly assigned values. A type can optionally be specified, and is required in some cases. For example when an integer literal is assigned to a mutable variable, its exact type must be specified.
+When the type of a `struct` is known, such as when passing it to a function, its name can be omitted and an anonymous literal can be used:
 #sourcecode[```zig
     const Foo = struct {
         a: i32,
@@ -106,7 +120,7 @@ When the type of a `struct` is known, such as when passing it to a function, it'
 
     doSomething(.{ .a = 21 });
 ```]
-The same is also true for an `enum` and a tagged `union`. When the type is known, the name of the enum can be omitted and only the variant needs to written out:
+The same is also true for an `enum` and a tagged `union`. When the type is known, the name of the `enum` can be omitted and only the variant needs to written out:
 #sourcecode[```zig
     const Bar = enum {
         One,
@@ -246,10 +260,10 @@ The `errdefer` statement runs code *only* when an error is returned from the sco
         return file;
     }
 ```]
-If the function succeeds the file is returned from it, so it shouldn't be closed. If it fails while seeking and returns an error, the `errdefer` statement is executed and the file is closed as to not leak any resources.
+If the function succeeds the file is returned from it, so it should not be closed. If it fails while seeking and returns an error, the `errdefer` statement is executed and the file is closed as to not leak any resources.
 
 == Memory management
-Zig doesn't include a garbage collector and uses a very explicit manual memory management strategy.\
+Zig does not include a garbage collector and uses a very explicit manual memory management strategy.\
 Memory is manually allocated and deallocated via `Allocator`s that are choosen and instantiated by the user.
 Data structures or functions which might allocate require an allocator to be passed explicitly. The standard library includes a range of allocators fit for different use cases, ranging from general purpose bucket allocators, bump- or arena allocators, to fixed buffer allocators.\
 Memory allocation may fail, and out of memory errors must be handled. Memory deallocation must always succeed.
@@ -257,7 +271,7 @@ Like other resources, data structures that allocate commonly provide an `init` a
 In debug mode the `GeneralPurposeAllocator` keeps track of allocations and detects memory leaks and double frees @zigdoc_std_gpa.
 
 == Comptime
-Zig provides a powerful compile time evaluation mechanism to avoid using macros or code generation. Contrary to C++ or Rust where functions have to be declared `constexpr` @cppref_constexpr or `const` @rustref_const in order to be called at compile time, in Zig everything that can be evaluated at `comptime` just is. A function called from a `comptime` context will either yield an error explaining what part of it isn't able to be evaluated at `comptime` or evaluate the value during compilation. A `comptime` context can be a constant defined at the global scope, or a `comptime` block. @zigdoc_comptime
+Zig provides a powerful compile time evaluation mechanism to avoid using macros or code generation. Contrary to C++ or Rust where functions have to be declared `constexpr` @cppref_constexpr or `const` @rustref_const in order to be called at compile time, in Zig everything that can be evaluated at `comptime` just is. A function called from a `comptime` context will either yield an error explaining what part of it is not able to be evaluated at `comptime` or evaluate the value during compilation. A `comptime` context can be a constant defined at the global scope, or a `comptime` block. @zigdoc_comptime
 
 This can be used to do expensive calculations, generate lookup tables, or uphold constraints using assertions, all at compile time:
 #sourcecode[```zig
@@ -282,7 +296,7 @@ This can be used to do expensive calculations, generate lookup tables, or uphold
     }
 ```]
 
-This means, if the main function is able to be evaluated at compile time, and it is called from a `comptime` context, the Zig compiler acts as an interpreter and the program is executed during compilation. Granted since comptime code can't perform I/O such a program is quite limited.
+This means, if the main function is able to be evaluated at compile time, and it is called from a `comptime` context, the Zig compiler acts as an interpreter and the program is executed during compilation. Granted since comptime code can not perform I/O such a program is quite limited.
 
 Arguments to functions can be declared as `comptime` which requires them to be known during compilation. This is often used for types passed to function in the same way other languages handle generics. Considering the following Kotlin @kotlinlang class:
 #sourcecode[```kotlin
@@ -314,14 +328,16 @@ Neither the Zig language itself, nor the std library directly define a string da
 
 With Zig being a young language, the eco system in general is still a little immature.
 To date there is no regex library written in zig that has feature parity with established regex engines.
-Zig `0.11.0` doesn't include support for `async` functions @zig_postponed_again.
+Zig `0.11.0` does not include support for `async` functions @zig_postponed_again.
 
 = Development process
 Since the scope of the program was predetermined, I mainly focused on performance.
 
-The Zig std library provides `IterableDir`, an iterator for iterating a directory in a depth first manner, but unfortunately that approach doesn't allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for iterating directories and modified it slightly to allow filtering out hidden directories.
+== Diretory walking
+The Zig std library provides `IterableDir`, an iterator for traversing a directory in a depth first manner, but unfortunately that approach does not allow filtering of searched directories. To overcome that limitation I mostly copied the std library function for walking directories and modified it slightly to allow filtering out hidden directories.
 
-There are some beginnings of regex libraries written in Zig, but they are still in their infancy, and aren't feature complete. So I decided on using the Rust regex library (`rure`) @rust_regex through it's C API, since it's a standalone project without tethers to a standard library, and reasonably fast @rebar.\
+== Linking and using the regex engine
+Since there are no usable regex engines written in Zig I had to find a library written in another language. I decided on using the Rust regex library (`rure`) @rust_regex through its C API, because it is a standalone project, easy to build @rustbook_cargo_build, and reasonably fast @rebar.\
 To include a C library, some modification inside the `build.zig` configuration file are needed: 
 #sourcecode[```zig
     // link all the other stuff needed
@@ -351,7 +367,7 @@ The dependencies are taken straight from the `rure` compile script:
     # -lutil -ldl -lpthread -lgcc_s -lc -lm -lrt -lutil -lrure
 ```]
 
-When linking C libraries, Zig isn't able to include debug symbols, so crash messages that would normally be informative, only show memory addresses:
+When linking C libraries, Zig is not able to include debug symbols, so crash messages that would normally be informative, only show memory addresses:
 #output[```
     thread 20843 panic: index out of bounds: index 14958, len 14948
     Unwind error at address `:0x2ebaef` (error.InvalidDebugInfo), trace may be incomplete
@@ -365,7 +381,7 @@ The C functions can then be imported using the `@cImport` intrinsic:
     });
 ```]
 
-And the c definitions can be accessed using the returned object.
+And the C definitions can be accessed using the returned object.
 #sourcecode[```zig
     var match: c.rure_match = undefined;
     const found = c.rure_find(ctx.regex, @ptrCast(text), text.len, pos, &match);
@@ -382,12 +398,12 @@ To keep it simple, the first implementation reads the whole file into a single b
 After some investigation it turned out that initializing the regex iterator provided by the `rure` crate had more overhead than expected, and running the regex search on the whole text instead of every line would improve performance significantly. Following this change, I found out that the `rure` library also provided a function that allowed searching from a specified start index inside the passed text slice. Using this function avoided allocating the iterator in the first place.
 
 === Line by line searching with fixed size buffer
-Since one of the tests was to search an 8gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This is done using a fixed size buffer which only loads part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated anyway to calculate line numbers, and the implementation was now using the function that searches the text directly without an iterator, I decided to once again search each line individually, instead of the whole text.
+Since one of the tests was to search an 8Gb large text file, the input would need to be split up into smaller chunks as to avoid running out of memory. This is done using a fixed size buffer which only loads part of the file, searching that buffer up to the last fully included line, then moving the unsearched parts including possibly relevant context lines to the start of the buffer, and eventually refilling the buffer with remaining data to search. Since lines need to be iterated anyway to calculate line numbers, and the implementation was now using the function that searches the text directly without an iterator, I decided to once again search each line individually, instead of the whole text.
 
 === Whole text searching with fixed size buffer
-After further investigation I discovered that the overhead of searching each line didn't just come from  the `rure` iterator, but that special regex patterns introduced large overhead when starting the search. One example was the word character pattern `\w`, which has to respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in a large number of states @rust_regex_issue_1095. This state machine, although only compiled once, needs to be initialized in memory every time a search is started. Disabling unicode support during the regex pattern compilation significantly improves performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.
+After further investigation I discovered that the overhead of searching each line did not just come from the `rure` iterator, but that special regex patterns introduced large overhead when starting the search. One example was the word character pattern `\w`, which has to respect possibly multi-byte unicode characters. Since the `rure` library uses a finite automata (state machine), matching multiple word characters results in a large number of states @rust_regex_issue_1095. This state machine, although only compiled once, needs to be initialized in memory every time a search is started. Disabling unicode support during the regex pattern compilation significantly improves performance. With these findings, the regex pattern matching was once again adjusted to be run on the whole text buffer, to restore previously achieved performance.
 
-One additional bug that I only tackled at this stage was to prevent regex matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the first matched line, if it succeeds too, only this match is highlighted and printed, otherwise it's a false positive.
+One additional bug that I only tackled at this stage was to prevent regex matches that spanned multiple lines. If a match is found that spans multiple lines an additional search is run only on the first matched line, if it succeeds too, only this match is highlighted and printed, otherwise it is a false positive.
 
 == Parallelization
 At this point most easy wins in single threaded optimization were off the table, so the next major performance improvements would come from using multiple threads. The most time consuming sections of the program are accessing the file system, and searching the text.
@@ -532,7 +548,7 @@ The issue was fixed by specifying a concrete tag type to represent the enum inst
 ```]
 
 At the time I discovered the bug, it was already fixed on the Zig `master` branch.\
-I wasn't able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
+I was not able to find a github issue or a pull request related to this bug, but my best guess is that the enum was somehow truncated to two bits, which would strip the topmost bit of the `IgnoreCase` variant represented as `0b100`, resulting in `0b00` which corresponds to `Hidden`.
 
 = Conclusion
 

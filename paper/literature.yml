@@ -207,6 +207,13 @@ rustbook_try:
   date: 2024-01-04
   parent: *rustbook_error_handling
 
+rustbook_cargo_build:
+  type: Web
+  title: Building and Running a Cargo Project
+  url: https://doc.rust-lang.org/book/ch01-03-hello-cargo.html#building-and-running-a-cargo-project
+  date: 2024-01-06
+  parent: *rustbook
+
 rustref: &rustref
   type: Reference
   title: The Rust Reference
@@ -219,7 +226,6 @@ rustref_const:
   url: https://doc.rust-lang.org/reference/const_eval.html
   date: 2024-01-04
   parent: *rustref
-
 
 kotlinlang:
   type: Web
@@ -261,7 +267,7 @@ llvm:
 
 grep:
   type: Reference
-  tile: GNU Grep
+  title: GNU Grep
   url: https://www.gnu.org/software/grep/manual/grep.html
   date: 2024-01-03
 
