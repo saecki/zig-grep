@@ -38,12 +38,19 @@ ziglang_downloads:
   date: 2024-01-04
   parent: *ziglang
 
-ziglang_overview:
+ziglang_overview: &ziglang_overview
   type: Web
   title: In-depth Overview
   url: https://ziglang.org/learn/overview/
   date: 2024-01-05
   parent: *ziglang
+
+ziglang_overview_c_integration:
+  type: Entry
+  title: Integration with C libraries without FFI/bindings
+  url: https://ziglang.org/learn/overview/#integration-with-c-libraries-without-ffibindings
+  date: 2024-01-07
+  parent: *ziglang_overview
 
 ziglang_getting_started:
   type: Web

@@ -37,7 +37,6 @@
 
 = Introduction
 The objective of this seminar was getting to know a new programming language by writing a simple grep @grep like program. It should be able to support unicode in the form of `UTF-8`, filter out binary files, print a help message, pass a test-suite, and adhere to the following command line interface:
-
 #output[```
 usage: searcher [OPTIONS] PATTERN [PATH ...]
 -A,--after-context <arg>    prints the given number of following lines
@@ -67,7 +66,7 @@ Zig is placed as a successor to C, it is an intentionally small and simple langu
 == Toolchain
 Installation was as simple as downloading the release tar archive from the downloads section of the Zig website @ziglang_downloads, extracting the toolchain, and symlinking the binary onto a `$PATH`. There is also a community project named `zigup` @zigup which is allows installing and managing multiple versions of the Zig compiler.
 
-The compiler is a single executable named `zig`, it includes a build system which can be configured in a `build.zig`, which is written in Zig @ziglang_buildsystem. The toolchain itself is also a C/C++ compiler which allows Zig code to directly interoperate with existing C/C++ code. @ziglang
+The compiler is a single executable named `zig`, it includes a build system which can be configured in a `build.zig` file, which is written in Zig @ziglang_buildsystem. The toolchain itself is also a C/C++ compiler which allows Zig code to directly interoperate with existing C/C++ code @ziglang_overview_c_integration.
 
 To create a new project inside the current directory, run `zig init-exe`. This will generate the main source file `src/main.zig` and the build configuration `build.zig`. The program can then be built and executed by running `zig build run`. @ziglang_getting_started
 
@@ -89,7 +88,7 @@ Zig arrays @zigdoc_arrays have a size known at compile time and are stack alloca
     const inferred_length = [_]u32{ 5, 6, 7, 8, 9 };
 ```]
 
-Arrays can be sliced using the index operator with an end-exclusive or half-open range, returning a slice @zigdoc_slices to the referenced array. By default the slice is a fat pointer which is composed of a pointer that points to the memory address of the slice inside the array, and the length of the slice.
+Arrays can be sliced using the index operator with an end-exclusive or half-open range, returning a slice @zigdoc_slices to the referenced array. By default the slice is a fat pointer which is composed of a pointer that points to the memory address of the slice inside the array, and the length of the slice:
 #sourcecode[```zig
     const array = [_]u32{ 0, 1, 2, 3, 4 };
     const slice = array[1..3];
@@ -190,7 +189,7 @@ Zig has special control flow constructs for dealing with union and optional valu
     }
 ```]
 
-To unwrap optional values more conveniently zig provides the `orelse` operator which allows specifying a default value, and the `.?` operator which forces a value to be unwrapped and will crash if it is `null`.
+To unwrap optional values more conveniently zig provides the `orelse` operator which allows specifying a default value, and the `.?` operator which forces a value to be unwrapped and will crash if it is `null`:
 #sourcecode[```zig
     const optional_token: ?Token = parser.next();
     const token = optional_token orelse unreachable;
@@ -214,7 +213,7 @@ Switch statements can be used to extract the values of tagged unions in a simila
 #pagebreak(weak: true)
 
 == Error handling
-In Zig there are no exceptions and errors are treated as values. If a function is fallible it returns an error union, the error set of that union can either be inferred or explicitly defined.\
+In Zig there are no exceptions and errors are treated as values. If a function is fallible it returns an error union, the error set of that union can either be inferred or explicitly defined:
 #sourcecode[```zig
     // inferred error set
     pub fn main() !void {
@@ -246,7 +245,7 @@ Like optional values, error unions can be inspected using an if statement. The o
     }
 ```]
 
-And likewise the `catch` operator for error unions corresponds to the `orelse` operator of optionals.
+And likewise the `catch` operator for error unions corresponds to the `orelse` operator of optionals:
 #sourcecode[```zig
     const DEFAULT_PATH = "$HOME/.config/zig-grep";
     const path = readEnvPath() catch DEFAULT_PATH;
@@ -265,7 +264,7 @@ Similar to Rust @rustbook_try Zig has a `try` operator that either returns the e
 == Defer
 There are no constructors or destructors in Zig, so unlike C++ where the RAII @cppref_raii model is often used to make objects manage their resources automatically, resources have to be managed manually. A commonly used pattern to manage resources is for an object to define `init` and a `deinit` procedures, which have to be called manually. In that case the `init` procedure is a static member function on the type that returns an instance of the type, and the `deinit` procedure is a method of the object.
 
-To make this more ergonomic Zig provides `defer` statements, which allow running cleanup code when a value goes out of scope. If multiple `defer` statements are defined, they are run in reverse declaration order. This allows the deinitialization code to be directly below the initialization: @zigdoc_defer
+To make this more ergonomic Zig provides `defer` statements, which allow running cleanup code when a value goes out of scope. If multiple `defer` statements are defined, they are run in reverse declaration order. This allows the deinitialization code to be directly below the initialization @zigdoc_defer:
 #sourcecode[```zig
     fn fallibeFunction() ![]const u8 {
         var foo = try std.fs.cwd().openFile("foo.txt", .{});
@@ -279,7 +278,7 @@ To make this more ergonomic Zig provides `defer` statements, which allow running
     }
 ```]
 
-The `errdefer` statement runs code *only* when an error is returned from the scope, this can be useful when dealing with a multi step initialization process that can fail, and intermediate resources need to be cleaned up:  @zigdoc_errdefer
+The `errdefer` statement runs code *only* when an error is returned from the scope, this can be useful when dealing with a multi step initialization process that can fail, and intermediate resources need to be cleaned up @zigdoc_errdefer:
 #sourcecode[```zig
     fn openAndPrepareFile() !File {
         var file = try std.fs.cwd().openFile("foo.txt", .{});
@@ -325,7 +324,8 @@ Arguments to functions can be declared as `comptime` which requires them to be k
         var items: ArrayList<T>,
     )
 ```]
-An equivalent Zig `struct` would be defined as a function taking a `comptime` type as an argument that returns another type.
+
+An equivalent Zig `struct` would be defined as a function taking a `comptime` type as an argument that returns another type:
 #sourcecode[```zig
     fn Container(comptime T: type) type {
         return struct {
@@ -408,7 +408,7 @@ The C functions can then be imported using the `@cImport` intrinsic:
     });
 ```]
 
-And the C definitions can be accessed using the returned object.
+And the C definitions can be accessed using the returned object:
 #sourcecode[```zig
     var match: c.rure_match = undefined;
     const found = c.rure_find(ctx.regex, @ptrCast(text), text.len, pos, &match);
@@ -453,13 +453,12 @@ The directory walking remains mostly the same apart from searching files ad hoc,
 
 Since there are now multiple threads writing to `stdout` their output has to be synchronized so that lines from one file would not be interspersed with other ones.\
 There are two obvious solutions to this problem. One is to use a dynamically growing allocated buffer which stores the entire output of a searched file and then write the entire buffer in a synchronized way when the file is fully searched. This would avoid blocking other threads, but could cause the program to run out of memory if large portions of big files would match a search pattern.\
-The other solution is to just block output of all other threads once a match has been found in a file and then write all lines directly to `stdout`. This would avoid running out of memory, but could in worst case scenarios cause basically single threaded performance.\
+The other solution is to block output of all other threads once a match has been found in a file and then write all lines directly to `stdout`. This would avoid running out of memory, but could in worst case scenarios cause close to single threaded performance.\
 The final implementation uses a hybrid of the two, each thread has a fixed size output buffer which can be written to without any locking (`SinkBuf` in `src/atomic.zig`). Once the buffer is full, access to `stdout` is locked using the underlying thread safe writer (`Sink` in `src/atomic.zig`) and the thread is free to write to it until the file is fully searched. While `stdout` is locked, other workers can still make progress and access their thread-local output buffers.
 
 With only text searching parallelized the search workers were consuming messages from the queue faster than paths could be added, so the goal was to speed up walking the file system with multiple threads.\
 This was heavily influenced by the Rust `ignore` crate @ignore_crate which is also used in `ripgrep` @ripgrep. A thread pool of walkers is used to search multiple directories simultaneously in a depth first manner to reduce memory consumption.\
 The core data structure used is an atomically synchronized, priority stack (`AtomicStack` in `src/atomic.zig`). A walker tries to pop off a directory of a shared atomically synchronized stack, by blocking until one is available. Once it receives a directory it iterates through the remaining entries, enqueuing any files encountered. If it encounters a subdirectory, the parent directory is pushed back onto the stack and the subdirectory is walked. The stack keeps track of the number of waiting threads and once all walkers are waiting for a new message, all directories have been walked completely and the thread pool is stopped:
-
 #sourcecode[```zig
     self.alive_workers -= 1;
     if (self.alive_workers == 0) {
