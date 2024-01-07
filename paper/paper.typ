@@ -73,6 +73,8 @@ To start a new project inside an existing directory running `zig init-exe` will 
 
 The Zig community also provides a language server named `zls` @zls, which worked right away after setting it up in `neovim` @neovim. There were some issues with type inference, and completion of member functions of generic types. In some cases `zls` would report no errors when the Zig compiler would.
 
+#pagebreak(weak: true)
+
 == Integers
 Zig has concrete integer types with a predetermined size regardless of the target platform.
 Commonly used types are:
@@ -128,8 +130,6 @@ A limitation of sentinel terminated slices or pointers is that they cannot refer
     src/main.zig:10:62: note: destination pointer requires '0' sentinel
 ```]
 
-#pagebreak(weak: true)
-
 == Tagged unions
 In Zig tagged unions are very similar to Rust enums @rustbook_enums. The tag can be either an existing enum or inferred from the union definition itself. If an existing enum is used as a tag, the compiler enforces that every variant that the enum defines is present in the union declaration. Tagged unions can be coerced to their enum tag, and an enum tag can be coerced to a tagged union when it is known at `comptime` and the union variant type has only one possible value such as `void`. @zigdoc_tagged_union
 #sourcecode[```zig
@@ -162,6 +162,9 @@ When the type of a `struct` is known, such as when passing it to a function, its
 
     doSomething(.{ .a = 21 });
 ```]
+
+#pagebreak(weak: true)
+
 The same is also true for an `enum` and a tagged `union`. When the type is known, the name of the `enum` can be omitted and only the variant needs to written out:
 #sourcecode[```zig
     const Bar = enum {
@@ -207,6 +210,8 @@ Switch statements can be used to extract the values of tagged unions in a simila
         .Dot => {},
     }
 ```]
+
+#pagebreak(weak: true)
 
 == Error handling
 In Zig there are no exceptions and errors are treated as values. If a function is fallible it returns an error union, the error set of that union can either be inferred or explicitly defined.\
@@ -255,6 +260,8 @@ Similar to Rust @rustbook_try Zig has a `try` operator that either returns the e
     const file = try openFile();
 ```]
 
+#pagebreak(weak: true)
+
 == Defer
 There are no constructors or destructors in Zig, so unlike C++ where the RAII @cppref_raii model is often used to make objects manage their resources automatically, resources have to be managed manually. A commonly used pattern to manage resources is for an object to define `init` and a `deinit` procedures, which have to be called manually. In that case the `init` procedure is a static member function on the type that returns an instance of the type, and the `deinit` procedure is a method of the object.
 
@@ -271,8 +278,6 @@ To make this more ergonomic Zig provides `defer` statements, which allow running
         // 2. foo.close();
     }
 ```]
-
-#pagebreak(weak: true)
 
 The `errdefer` statement runs code *only* when an error is returned from the scope, this can be useful when dealing with a multi step initialization process that can fail, and intermediate resources need to be cleaned up:  @zigdoc_errdefer
 #sourcecode[```zig
@@ -329,6 +334,8 @@ An equivalent Zig `struct` would be defined as a function taking a `comptime` ty
     }
 ```]
 Note that ArrayList is another such function defined in the standard library.
+
+#pagebreak(weak: true)
 
 == SIMD
 In addition to the automatic vectorization of code that the LLVM @llvm optimizer does, Zig also provides a way to explicitly define vector operations, using the `@Vector` intrinsic, that will compile down to target specific SIMD operations: @zigdoc_vectors
