@@ -580,12 +580,13 @@ But this is done for a reason, Zig allows competent programmers to write high pe
 
 The raw benchmark output can be found in the `bench` directory.
 
-Benchmarks were run using the following command:
+Benchmarks were run using `hyperfine` and a modified version of the `test.py` script.\
+The exact command used was:
 #sourcecode[```sh
 python test/test.py --ripgrep -v --bench --fail-fast -d test/data ./zig-out/bin/zig-grep
 ```]
 
-== Result from a thinkpad with an r7 5800u and 16Gb ram
+== Result from a thinkpad with an Ryzen 7 5800u and 16Gb ram
 #table(
     columns: (6fr, 3fr, 3fr, 1fr),
     align: center,
@@ -623,3 +624,44 @@ python test/test.py --ripgrep -v --bench --fail-fast -d test/data ./zig-out/bin/
     [subtitles_no_literal_ignore_case], [24592], [25243], [26059], [27501], [27692], [28037], [109],
 )
 Average runtime compared to ripgrep: 198%.
+
+#pagebreak(weak: true)
+
+== Result from a desktop with an Ryzen 5 5600x and 32Gb ram
+#table(
+    columns: (6fr, 3fr, 3fr, 1fr),
+    align: center,
+    [], [ripgrep [ms]], [searcher [ms]], [],
+)
+#v(0fr)
+#table(
+    columns: (6fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr),
+    align: (x, y) => if x > 0 { right } else { left },
+    [name], [min], [avg], [max], [min], [avg], [max], [%],
+    [literal_linux], [101], [103], [105], [255], [258], [261], [250],
+    [literal_linux_hidden], [109], [111], [120], [302], [378], [560], [339],
+    [linux_literal_ignore_case], [107], [111], [125], [285], [308], [334], [276],
+    [linux_pattern_prefix], [108], [123], [141], [277], [315], [396], [255],
+    [linux_pattern_prefix_with_context], [116], [121], [136], [279], [290], [325], [239],
+    [linux_pattern_prefix_ignore_case], [236], [242], [258], [316], [322], [330], [132],
+    [linux_pattern_suffix], [116], [118], [121], [394], [410], [450], [345],
+    [linux_pattern_suffix_with_context], [129], [132], [134], [413], [425], [433], [322],
+    [linux_pattern_suffix_ignore_case], [123], [125], [130], [430], [436], [445], [348],
+    [linux_word], [109], [112], [116], [271], [275], [280], [245],
+    [linux_word_with_heading], [110], [112], [115], [274], [284], [298], [251],
+    [linux_word_ignore_case], [118], [121], [123], [476], [484], [490], [399],
+    [linux_no_literal], [367], [373], [389], [451], [460], [473], [123],
+    [linux_no_literal_ignore_case], [371], [377], [384], [451], [459], [473], [121],
+    [linux_alternatives], [113], [116], [123], [291], [302], [315], [259],
+    [linux_alternatives_with_heading], [113], [116], [121], [285], [289], [295], [248],
+    [linux_alternatives_ignore_case], [174], [176], [178], [305], [311], [320], [176],
+    [subtitles_literal], [1695], [2051], [4688], [7495], [7584], [7656], [369],
+    [subtitles_literal_ignore_case], [2286], [2307], [2331], [7976], [8087], [8173], [350],
+    [subtitles_alternatives], [1973], [1995], [2037], [7939], [8130], [8238], [407],
+    [subtitles_alternatives_ignore_case], [3908], [3927], [3968], [9434], [9579], [9802], [243],
+    [subtitles_surrounding_words], [1688], [1710], [1728], [7411], [7565], [7701], [442],
+    [subtitles_surrounding_words_ignore_case], [2078], [2091], [2109], [7936], [8098], [8238], [387],
+    [subtitles_no_literal], [18931], [18949], [18976], [23839], [24089], [24387], [127],
+    [subtitles_no_literal_ignore_case], [18905], [18923], [18946], [23863], [24213], [24411], [127],
+)
+Average runtime compared to ripgrep: 271%.
