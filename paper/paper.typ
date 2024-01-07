@@ -36,7 +36,26 @@
 #set par(justify: true)
 
 = Introduction
-The objective of this seminar was getting to know a new programming language by writing a simple grep @grep like program.
+The objective of this seminar was getting to know a new programming language by writing a simple grep @grep like program. It should be able to support unicode in the form of `UTF-8`, filter out binary files, print a help message, pass a test-suite, and adhere to the following command line interface:
+
+#output[```
+usage: searcher [OPTIONS] PATTERN [PATH ...]
+-A,--after-context <arg>    prints the given number of following lines
+                            for each match
+-B,--before-context <arg>   prints the given number of preceding lines
+                            for each match
+-c,--color                  print with colors, highlighting the matched
+                            phrase in the output
+-C,--context <arg>          prints the number of preceding and following
+                            lines for each match. this is equivalent to
+                            setting --before-context and --after-context
+-h,--hidden                 search hidden files and folders
+--help                      print this message
+-i,--ignore-case            search case insensitive
+--no-heading                prints a single line including the filename
+                            for each match, instead of grouping matches
+                            by file
+```]
 
 = Language
 Zig is a general-purpose compiled systems programming language @ziglang.
@@ -553,11 +572,11 @@ I was not able to find a github issue or a pull request related to this bug, but
 
 = Conclusion
 == Program
-Since the Zig compiler as of version `0.11.0` is not able to genrate debug symbols when a C library is linked, I was not able to profile the program more thoroughly. I would have liked to look at a `flamegraph` @flamegraph and more detailed timing information to optimize the application.
+Using Zig I was able to write a program that is only around 1-2 times slower than `ripgrep` @ripgrep when run on the test-suite, see @bench.
 
-The program also currently synchronizes output for entire files, even if the `--no-heading` option is enabled. It should be faster to only synchronize output for lines when that is the case. Especially when a large file might be blocking other threads from progressing to the next file, because it has filled its output buffer and prevents them from writing to `stdout`.
+Since the Zig compiler as of version `0.11.0` is not able to generate debug symbols when a C library is linked, I could not profile the program more thoroughly. I would have liked to look at a `flamegraph` @flamegraph and more detailed timing information to optimize the application.
 
-Apart from that learning Zig was an interesting journey, which definitely was a breath of fresh air for someone who mostly writes Rust code. I was able to write a program that is only 2 times as slow as `ripgrep` @ripgrep when run on test cases provided by the task @bench.
+The program also currently synchronizes output for entire files, even if the `--no-heading` option is enabled. It should be faster to only synchronize output for lines, especially when a large file might be blocking other threads from progressing to the next file, because it has filled its output buffer, has exclusive access to `stdout` and prevents them from flushing their output buffer.
 
 == Zig
 While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still an unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
@@ -580,8 +599,7 @@ But this is done for a reason, Zig allows competent programmers to write high pe
 
 The raw benchmark output can be found in the `bench` directory.
 
-Benchmarks were run using `hyperfine` and a modified version of the `test.py` script.\
-The exact command used was:
+Benchmarks were run using `python 3.11.7`, `hyperfine 1.18.0` @hyperfine and a modified version of the test-suite which can be found at `test/test.py`. By default `hyperfine` runs each command at least 10 times. The exact command used to run the benchmarks was:
 #sourcecode[```sh
 python test/test.py --ripgrep -v --bench --fail-fast -d test/data ./zig-out/bin/zig-grep
 ```]
