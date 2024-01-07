@@ -69,7 +69,7 @@ Installation was as simple as downloading the release tar archive from the downl
 
 The compiler is a single executable named `zig`, it includes a build system which can be configured in a `build.zig`, which is written in Zig @ziglang_buildsystem. The toolchain itself is also a C/C++ compiler which allows Zig code to directly interoperate with existing C/C++ code. @ziglang
 
-To start a new project inside an existing directory running `zig init-exe` will generate the main source file `src/main.zig` and the build configuration `build.zig`. The program can then be built and executed by running `zig build run`. @ziglang_getting_started
+To create a new project inside the current directory, run `zig init-exe`. This will generate the main source file `src/main.zig` and the build configuration `build.zig`. The program can then be built and executed by running `zig build run`. @ziglang_getting_started
 
 The Zig community also provides a language server named `zls` @zls, which worked right away after setting it up in `neovim` @neovim. There were some issues with type inference, and completion of member functions of generic types. In some cases `zls` would report no errors when the Zig compiler would.
 
@@ -585,7 +585,7 @@ Since the Zig compiler as of version `0.11.0` is not able to generate debug symb
 
 The program also currently synchronizes output for entire files, even if the `--no-heading` option is enabled. It should be faster to only synchronize output for lines, especially when a large file might be blocking other threads from progressing to the next file, because it has filled its output buffer, has exclusive access to `stdout` and prevents them from flushing their output buffer.
 
-== Zig
+== Language
 While having several constructs that make it easier to write memory safe code than C, like optional types, `defer` statements, or a slice type with a length field, Zig is still an unsafe language regarding memory management. Compared to managed languages with garbage collectors or Rust that has hard rules in place to avoid double frees, data races, and to some degree memory leaks, a program written in Zig still places a burden on the programmer to avoid memory related bugs.
 
 But this is done for a reason, Zig allows competent programmers to write high performance code while taking full control of the system. It does so while being more ergonomic than C and being less constraining than Rust.
