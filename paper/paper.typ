@@ -578,7 +578,7 @@ I was not able to find a github issue or a pull request related to this bug, but
 
 = Conclusion
 == Program
-Using Zig I was able to write a program that is only around 1-2 times slower than `ripgrep` @ripgrep when run on the test-suite, see @bench.
+Using Zig I was able to write a program that is only around 2-3 times as slow as `ripgrep` @ripgrep when run on the test-suite, see @bench.
 
 Since the Zig compiler as of version `0.11.0` is not able to generate debug symbols when a C library is linked, I could not profile the program more thoroughly. I would have liked to look at a `flamegraph` @flamegraph and more detailed timing information to optimize the application.
 
