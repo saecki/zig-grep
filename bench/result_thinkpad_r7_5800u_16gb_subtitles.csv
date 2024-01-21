@@ -1,0 +1,9 @@
+name                                     ripgrep  searcher     
+subtitles_literal                        10099     9931
+subtitles_literal_ignore_case             9027    10276
+subtitles_alternatives                    9245    10646
+subtitles_alternatives_ignore_case        9735    12921
+subtitles_surrounding_words               9026     9910
+subtitles_surrounding_words_ignore_case   8795    10740
+subtitles_no_literal                     24889    27628
+subtitles_no_literal_ignore_case         25243    27692

@@ -1,0 +1,1713 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="1382.4pt" height="722.16pt" viewBox="0 0 1382.4 722.16" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2024-01-22T04:01:53.965292</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.8.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 722.16 
+L 1382.4 722.16 
+L 1382.4 0 
+L 0 0 
+L 0 722.16 
+z
+" style="fill: none; opacity: 0"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 70.61 465.140306 
+L 1369.44 465.140306 
+L 1369.44 12.96 
+L 70.61 12.96 
+z
+" style="fill: #323232"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 154.39408 465.140306 
+L 154.39408 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_1">
+      <!-- literal_linux -->
+      <g style="fill: #c0c0b0" transform="translate(64.110686 571.14624) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-6c" d="M 2432 0 
+Q 1965 0 1686 272 
+Q 1408 544 1408 992 
+L 1408 4147 
+L 192 4147 
+L 192 4672 
+L 1984 4672 
+L 1984 992 
+Q 1984 774 2105 649 
+Q 2227 525 2432 525 
+L 3520 525 
+L 3520 0 
+L 2432 0 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-69" d="M 544 0 
+L 544 525 
+L 1792 525 
+L 1792 2995 
+L 672 2995 
+L 672 3520 
+L 2368 3520 
+L 2368 525 
+L 3552 525 
+L 3552 0 
+L 544 0 
+z
+M 2016 4154 
+Q 1805 4154 1683 4262 
+Q 1562 4371 1562 4557 
+Q 1562 4749 1683 4861 
+Q 1805 4973 2016 4973 
+Q 2227 4973 2348 4861 
+Q 2470 4749 2470 4557 
+Q 2470 4371 2348 4262 
+Q 2227 4154 2016 4154 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-74" d="M 2272 0 
+Q 1837 0 1574 253 
+Q 1312 506 1312 928 
+L 1312 2995 
+L 301 2995 
+L 301 3520 
+L 1312 3520 
+L 1312 4512 
+L 1888 4512 
+L 1888 3520 
+L 3328 3520 
+L 3328 2995 
+L 1888 2995 
+L 1888 928 
+Q 1888 749 1993 637 
+Q 2099 525 2272 525 
+L 3296 525 
+L 3296 0 
+L 2272 0 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-65" d="M 1920 -64 
+Q 1299 -64 918 310 
+Q 538 685 538 1344 
+L 538 2176 
+Q 538 2835 918 3209 
+Q 1299 3584 1920 3584 
+Q 2336 3584 2646 3417 
+Q 2957 3251 3129 2950 
+Q 3302 2650 3302 2240 
+L 3302 1613 
+L 1101 1613 
+L 1101 1280 
+Q 1101 890 1325 662 
+Q 1549 435 1920 435 
+Q 2240 435 2448 560 
+Q 2656 685 2701 896 
+L 3277 896 
+Q 3219 454 2848 195 
+Q 2477 -64 1920 -64 
+z
+M 1101 2061 
+L 2739 2061 
+L 2739 2240 
+Q 2739 2656 2524 2883 
+Q 2310 3110 1920 3110 
+Q 1530 3110 1315 2883 
+Q 1101 2656 1101 2240 
+L 1101 2061 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-72" d="M 717 0 
+L 717 3520 
+L 1293 3520 
+L 1293 2848 
+L 1306 2848 
+Q 1350 3187 1593 3385 
+Q 1837 3584 2246 3584 
+Q 2797 3584 3094 3254 
+Q 3392 2925 3392 2317 
+L 3392 2016 
+L 2816 2016 
+L 2816 2317 
+Q 2816 3085 2067 3085 
+Q 1690 3085 1491 2867 
+Q 1293 2650 1293 2240 
+L 1293 0 
+L 717 0 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-61" d="M 1613 -64 
+Q 1069 -64 749 240 
+Q 429 544 429 1037 
+Q 429 1363 576 1606 
+Q 723 1850 985 1987 
+Q 1248 2125 1587 2125 
+L 2675 2125 
+L 2675 2400 
+Q 2675 3085 1926 3085 
+Q 1594 3085 1389 2963 
+Q 1184 2842 1171 2624 
+L 595 2624 
+Q 627 3040 982 3312 
+Q 1338 3584 1926 3584 
+Q 2566 3584 2908 3277 
+Q 3251 2970 3251 2419 
+L 3251 0 
+L 2682 0 
+L 2682 640 
+L 2669 640 
+Q 2618 314 2342 125 
+Q 2067 -64 1613 -64 
+z
+M 1754 422 
+Q 2176 422 2425 627 
+Q 2675 832 2675 1184 
+L 2675 1677 
+L 1651 1677 
+Q 1370 1677 1194 1507 
+Q 1018 1338 1018 1056 
+Q 1018 762 1213 592 
+Q 1408 422 1754 422 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-5f" d="M 384 -640 
+L 384 -160 
+L 3456 -160 
+L 3456 -640 
+L 384 -640 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-6e" d="M 589 0 
+L 589 3520 
+L 1165 3520 
+L 1165 2848 
+L 1171 2848 
+Q 1216 3200 1459 3392 
+Q 1702 3584 2106 3584 
+Q 2637 3584 2950 3257 
+Q 3264 2931 3264 2368 
+L 3264 0 
+L 2688 0 
+L 2688 2266 
+Q 2688 2669 2486 2883 
+Q 2285 3098 1939 3098 
+Q 1581 3098 1373 2874 
+Q 1165 2650 1165 2240 
+L 1165 0 
+L 589 0 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-75" d="M 1914 -64 
+Q 1306 -64 941 297 
+Q 576 659 576 1280 
+L 576 3520 
+L 1152 3520 
+L 1152 1280 
+Q 1152 896 1357 669 
+Q 1562 442 1914 442 
+Q 2272 442 2480 669 
+Q 2688 896 2688 1280 
+L 2688 3520 
+L 3264 3520 
+L 3264 1280 
+Q 3264 659 2893 297 
+Q 2522 -64 1914 -64 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-78" d="M 320 0 
+L 1568 1811 
+L 397 3520 
+L 1075 3520 
+L 1773 2432 
+Q 1818 2362 1859 2278 
+Q 1901 2195 1926 2144 
+Q 1946 2195 1987 2278 
+Q 2029 2362 2074 2432 
+L 2771 3520 
+L 3450 3520 
+L 2278 1805 
+L 3520 0 
+L 2842 0 
+L 2086 1152 
+Q 2042 1222 2000 1315 
+Q 1958 1408 1926 1466 
+Q 1901 1408 1853 1315 
+Q 1805 1222 1754 1152 
+L 998 0 
+L 320 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="719.999817"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <path d="M 225.097945 465.140306 
+L 225.097945 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_2">
+      <!-- literal_linux_hidden -->
+      <g style="fill: #c0c0b0" transform="translate(87.296976 618.663816) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-68" d="M 589 0 
+L 589 4672 
+L 1165 4672 
+L 1165 2848 
+L 1171 2848 
+Q 1216 3200 1459 3392 
+Q 1702 3584 2106 3584 
+Q 2637 3584 2950 3257 
+Q 3264 2931 3264 2368 
+L 3264 0 
+L 2688 0 
+L 2688 2272 
+Q 2688 2669 2486 2883 
+Q 2285 3098 1939 3098 
+Q 1581 3098 1373 2874 
+Q 1165 2650 1165 2240 
+L 1165 0 
+L 589 0 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-64" d="M 1715 -64 
+Q 1190 -64 873 288 
+Q 557 640 557 1242 
+L 557 2272 
+Q 557 2880 870 3232 
+Q 1184 3584 1715 3584 
+Q 2112 3584 2371 3385 
+Q 2630 3187 2682 2848 
+L 2688 2848 
+L 2675 3648 
+L 2675 4672 
+L 3251 4672 
+L 3251 0 
+L 2675 0 
+L 2675 672 
+L 2669 672 
+Q 2624 326 2368 131 
+Q 2112 -64 1715 -64 
+z
+M 1907 435 
+Q 2266 435 2470 659 
+Q 2675 883 2675 1280 
+L 2675 2240 
+Q 2675 2637 2470 2861 
+Q 2266 3085 1907 3085 
+Q 1542 3085 1337 2896 
+Q 1133 2707 1133 2272 
+L 1133 1248 
+Q 1133 819 1337 627 
+Q 1542 435 1907 435 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1139.99971"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <path d="M 295.80181 465.140306 
+L 295.80181 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_3">
+      <!-- linux_literal_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(124.059715 653.137039) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-67" d="M 1030 -1152 
+L 1030 -627 
+L 2022 -627 
+Q 2323 -627 2496 -457 
+Q 2669 -288 2669 0 
+L 2669 320 
+L 2682 896 
+L 2662 896 
+Q 2611 582 2361 412 
+Q 2112 243 1734 243 
+Q 1190 243 876 588 
+Q 563 934 563 1536 
+L 563 2278 
+Q 563 2880 876 3232 
+Q 1190 3584 1734 3584 
+Q 2112 3584 2361 3405 
+Q 2611 3226 2662 2912 
+L 2675 2912 
+L 2675 3520 
+L 3245 3520 
+L 3245 0 
+Q 3245 -531 2915 -841 
+Q 2586 -1152 2016 -1152 
+L 1030 -1152 
+z
+M 1907 723 
+Q 2266 723 2470 947 
+Q 2675 1171 2675 1568 
+L 2675 2240 
+Q 2675 2637 2470 2861 
+Q 2266 3085 1907 3085 
+Q 1542 3085 1340 2873 
+Q 1139 2662 1139 2304 
+L 1139 1504 
+Q 1139 1146 1340 934 
+Q 1542 723 1907 723 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-6f" d="M 1920 -51 
+Q 1286 -51 912 320 
+Q 538 691 538 1357 
+L 538 2163 
+Q 538 2835 909 3203 
+Q 1280 3571 1920 3571 
+Q 2560 3571 2931 3203 
+Q 3302 2835 3302 2163 
+L 3302 1357 
+Q 3302 691 2928 320 
+Q 2554 -51 1920 -51 
+z
+M 1920 461 
+Q 2298 461 2512 672 
+Q 2726 883 2726 1293 
+L 2726 2227 
+Q 2726 2637 2512 2848 
+Q 2298 3059 1920 3059 
+Q 1549 3059 1331 2848 
+Q 1114 2637 1114 2227 
+L 1114 1293 
+Q 1114 883 1331 672 
+Q 1549 461 1920 461 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-63" d="M 1971 -64 
+Q 1331 -64 947 294 
+Q 563 653 563 1280 
+L 563 2240 
+Q 563 2867 947 3225 
+Q 1331 3584 1971 3584 
+Q 2579 3584 2953 3257 
+Q 3328 2931 3347 2368 
+L 2771 2368 
+Q 2752 2707 2541 2889 
+Q 2330 3072 1971 3072 
+Q 1594 3072 1366 2857 
+Q 1139 2643 1139 2246 
+L 1139 1280 
+Q 1139 883 1366 665 
+Q 1594 448 1971 448 
+Q 2330 448 2541 633 
+Q 2752 819 2771 1152 
+L 3347 1152 
+Q 3328 589 2953 262 
+Q 2579 -64 1971 -64 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-73" d="M 1779 -51 
+Q 1190 -51 867 214 
+Q 544 480 544 966 
+L 1120 966 
+Q 1120 723 1293 585 
+Q 1466 448 1779 448 
+L 2061 448 
+Q 2381 448 2557 589 
+Q 2733 730 2733 986 
+Q 2733 1440 2317 1498 
+L 1344 1638 
+Q 986 1690 787 1936 
+Q 589 2182 589 2586 
+Q 589 3046 905 3308 
+Q 1222 3571 1779 3571 
+L 2061 3571 
+Q 2573 3571 2896 3318 
+Q 3219 3066 3245 2656 
+L 2662 2656 
+Q 2650 2842 2486 2963 
+Q 2323 3085 2061 3085 
+L 1779 3085 
+Q 1485 3085 1318 2950 
+Q 1152 2816 1152 2586 
+Q 1152 2214 1491 2163 
+L 2400 2035 
+Q 3296 1907 3296 986 
+Q 3296 493 2973 221 
+Q 2650 -51 2061 -51 
+L 1779 -51 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1439.999634"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_4">
+      <path d="M 366.505675 465.140306 
+L 366.505675 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_4">
+      <!-- linux_pattern_prefix -->
+      <g style="fill: #c0c0b0" transform="translate(228.704705 619.195913) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-70" d="M 589 -1152 
+L 589 3520 
+L 1165 3520 
+L 1165 2848 
+L 1171 2848 
+Q 1216 3194 1472 3389 
+Q 1728 3584 2125 3584 
+Q 2656 3584 2969 3235 
+Q 3283 2886 3283 2278 
+L 3283 1248 
+Q 3283 640 2969 288 
+Q 2656 -64 2125 -64 
+Q 1728 -64 1472 134 
+Q 1216 333 1171 672 
+L 1152 672 
+L 1165 -128 
+L 1165 -1152 
+L 589 -1152 
+z
+M 1933 435 
+Q 2298 435 2502 627 
+Q 2707 819 2707 1248 
+L 2707 2272 
+Q 2707 2707 2502 2896 
+Q 2298 3085 1933 3085 
+Q 1581 3085 1373 2861 
+Q 1165 2637 1165 2240 
+L 1165 1280 
+Q 1165 883 1373 659 
+Q 1581 435 1933 435 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-66" d="M 1376 0 
+L 1376 2515 
+L 352 2515 
+L 352 3040 
+L 1376 3040 
+L 1376 3776 
+Q 1376 4192 1638 4432 
+Q 1901 4672 2362 4672 
+L 3392 4672 
+L 3392 4147 
+L 2362 4147 
+Q 1952 4147 1952 3776 
+L 1952 3040 
+L 3392 3040 
+L 3392 2515 
+L 1952 2515 
+L 1952 0 
+L 1376 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_5">
+      <path d="M 437.20954 465.140306 
+L 437.20954 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_5">
+      <!-- linux_pattern_prefix_with_context -->
+      <g style="fill: #c0c0b0" transform="translate(211.161644 707.44284) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-77" d="M 774 0 
+L 198 3520 
+L 698 3520 
+L 1056 1037 
+Q 1075 896 1094 726 
+Q 1114 557 1120 448 
+Q 1133 557 1149 726 
+Q 1165 896 1190 1037 
+L 1632 3520 
+L 2208 3520 
+L 2650 1037 
+Q 2675 896 2697 726 
+Q 2720 557 2726 448 
+Q 2739 557 2758 726 
+Q 2778 896 2797 1037 
+L 3168 3520 
+L 3642 3520 
+L 3040 0 
+L 2406 0 
+L 2003 2432 
+Q 1978 2611 1955 2812 
+Q 1933 3014 1920 3123 
+Q 1914 3014 1888 2812 
+Q 1862 2611 1830 2432 
+L 1408 0 
+L 774 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1739.999557"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1799.999542"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1859.999527"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1919.999512"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_6">
+      <path d="M 507.913405 465.140306 
+L 507.913405 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_6">
+      <!-- linux_pattern_prefix_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(288.653734 700.654615) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1739.999557"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1799.999542"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1859.999527"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_7">
+      <path d="M 578.61727 465.140306 
+L 578.61727 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_7">
+      <!-- linux_pattern_suffix -->
+      <g style="fill: #c0c0b0" transform="translate(440.8163 619.195913) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_8">
+      <path d="M 649.321135 465.140306 
+L 649.321135 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_8">
+      <!-- linux_pattern_suffix_with_context -->
+      <g style="fill: #c0c0b0" transform="translate(423.273239 707.44284) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1739.999557"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1799.999542"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1859.999527"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1919.999512"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_9">
+      <path d="M 720.025 465.140306 
+L 720.025 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_9">
+      <!-- linux_pattern_suffix_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(500.765329 700.654615) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-66" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1739.999557"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1799.999542"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1859.999527"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_10">
+     <g id="line2d_10">
+      <path d="M 790.728865 465.140306 
+L 790.728865 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_10">
+      <!-- linux_word -->
+      <g style="fill: #c0c0b0" transform="translate(720.810146 550.781565) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="539.999863"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_11">
+     <g id="line2d_11">
+      <path d="M 861.43273 465.140306 
+L 861.43273 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_11">
+      <!-- linux_word_with_heading -->
+      <g style="fill: #c0c0b0" transform="translate(703.267085 639.560589) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1319.999664"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_12">
+     <g id="line2d_12">
+      <path d="M 932.136595 465.140306 
+L 932.136595 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_12">
+      <!-- linux_word_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(780.759175 632.772364) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1259.99968"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_13">
+     <g id="line2d_13">
+      <path d="M 1002.84046 465.140306 
+L 1002.84046 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_13">
+      <!-- linux_no_literal -->
+      <g style="fill: #c0c0b0" transform="translate(892.192391 591.510915) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="899.999771"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_14">
+     <g id="line2d_14">
+      <path d="M 1073.544325 465.140306 
+L 1073.544325 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_14">
+      <!-- linux_no_literal_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(881.437555 673.501714) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1619.999588"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_15">
+     <g id="line2d_15">
+      <path d="M 1144.24819 465.140306 
+L 1144.24819 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_15">
+      <!-- linux_alternatives -->
+      <g style="fill: #c0c0b0" transform="translate(1020.023671 605.087365) rotate(-45) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-76" d="M 1542 0 
+L 346 3520 
+L 966 3520 
+L 1734 1152 
+Q 1805 941 1856 745 
+Q 1907 550 1933 442 
+Q 1965 550 2009 745 
+Q 2054 941 2118 1152 
+L 2886 3520 
+L 3494 3520 
+L 2298 0 
+L 1542 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-76" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1019.999741"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_16">
+     <g id="line2d_16">
+      <path d="M 1214.952055 465.140306 
+L 1214.952055 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_16">
+      <!-- linux_alternatives_with_heading -->
+      <g style="fill: #c0c0b0" transform="translate(1002.480609 693.866389) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-76" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-77" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-64" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1739.999557"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1799.999542"/>
+      </g>
+     </g>
+    </g>
+    <g id="xtick_17">
+     <g id="line2d_17">
+      <path d="M 1285.65592 465.140306 
+L 1285.65592 12.96 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_17">
+      <!-- linux_alternatives_ignore_case -->
+      <g style="fill: #c0c0b0" transform="translate(1079.972699 687.078164) rotate(-45) scale(0.16 -0.16)">
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-75" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-78" x="239.999939"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="299.999924"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="359.999908"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6c" x="419.999893"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="479.999878"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="539.999863"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="599.999847"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="659.999832"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="719.999817"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-74" x="779.999802"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="839.999786"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-76" x="899.999771"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="959.999756"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1019.999741"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1079.999725"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="1139.99971"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="1199.999695"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6e" x="1259.99968"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6f" x="1319.999664"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="1379.999649"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1439.999634"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-5f" x="1499.999619"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="1559.999603"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="1619.999588"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="1679.999573"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="1739.999557"/>
+      </g>
+     </g>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_18">
+      <path d="M 70.61 465.140306 
+L 1369.44 465.140306 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_18">
+      <!-- 0ms -->
+      <g style="fill: #c0c0b0" transform="translate(32.31 470.980306) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-30" d="M 1920 -64 
+Q 1274 -64 893 310 
+Q 512 685 512 1312 
+L 512 3360 
+Q 512 3987 893 4361 
+Q 1274 4736 1920 4736 
+Q 2566 4736 2947 4361 
+Q 3328 3987 3328 3360 
+L 3328 1312 
+Q 3328 896 3155 585 
+Q 2982 275 2665 105 
+Q 2349 -64 1920 -64 
+z
+M 1920 429 
+Q 2304 429 2537 675 
+Q 2771 922 2771 1312 
+L 2771 3360 
+Q 2771 3750 2537 3996 
+Q 2304 4243 1920 4243 
+Q 1536 4243 1302 3996 
+Q 1069 3750 1069 3360 
+L 1069 1312 
+Q 1069 922 1302 675 
+Q 1536 429 1920 429 
+z
+M 1920 1984 
+Q 1747 1984 1641 2080 
+Q 1536 2176 1536 2355 
+Q 1536 2528 1641 2621 
+Q 1747 2714 1920 2714 
+Q 2093 2714 2198 2621 
+Q 2304 2528 2304 2355 
+Q 2304 2176 2198 2080 
+Q 2093 1984 1920 1984 
+z
+" transform="scale(0.015625)"/>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-6d" d="M 384 0 
+L 384 3520 
+L 883 3520 
+L 883 3053 
+L 896 3053 
+Q 928 3290 1085 3437 
+Q 1242 3584 1485 3584 
+Q 1715 3584 1875 3449 
+Q 2035 3315 2106 3085 
+L 2112 3085 
+Q 2157 3315 2313 3449 
+Q 2470 3584 2714 3584 
+Q 3053 3584 3254 3331 
+Q 3456 3078 3456 2675 
+L 3456 0 
+L 2918 0 
+L 2918 2682 
+Q 2918 2893 2816 3017 
+Q 2714 3142 2534 3142 
+Q 2362 3142 2259 3020 
+Q 2157 2899 2157 2688 
+L 2157 0 
+L 1683 0 
+L 1683 2682 
+Q 1683 2893 1580 3017 
+Q 1478 3142 1306 3142 
+Q 1126 3142 1024 3020 
+Q 922 2899 922 2688 
+L 922 0 
+L 384 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6d" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="119.999969"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_19">
+      <path d="M 70.61 373.121522 
+L 1369.44 373.121522 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_19">
+      <!-- 100ms -->
+      <g style="fill: #c0c0b0" transform="translate(13.11 378.961522) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-31" d="M 576 0 
+L 576 525 
+L 1843 525 
+L 1843 4173 
+L 576 3226 
+L 576 3885 
+L 1632 4672 
+L 2419 4672 
+L 2419 525 
+L 3456 525 
+L 3456 0 
+L 576 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-31"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6d" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="239.999939"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_20">
+      <path d="M 70.61 281.102738 
+L 1369.44 281.102738 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_20">
+      <!-- 200ms -->
+      <g style="fill: #c0c0b0" transform="translate(13.11 286.942738) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-32" d="M 550 0 
+L 550 531 
+L 2106 2195 
+Q 2445 2554 2585 2835 
+Q 2726 3117 2726 3386 
+Q 2726 3770 2505 3997 
+Q 2285 4224 1907 4224 
+Q 1517 4224 1289 3990 
+Q 1062 3757 1062 3360 
+L 486 3360 
+Q 506 3994 890 4365 
+Q 1274 4736 1907 4736 
+Q 2554 4736 2934 4371 
+Q 3315 4006 3315 3379 
+Q 3315 3046 3132 2675 
+Q 2950 2304 2509 1843 
+L 1248 525 
+L 3373 525 
+L 3373 0 
+L 550 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-32"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6d" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="239.999939"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_21">
+      <path d="M 70.61 189.083953 
+L 1369.44 189.083953 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_21">
+      <!-- 300ms -->
+      <g style="fill: #c0c0b0" transform="translate(13.11 194.923953) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-33" d="M 1850 -64 
+Q 1203 -64 825 297 
+Q 448 659 448 1280 
+L 1024 1280 
+Q 1024 896 1248 672 
+Q 1472 448 1856 448 
+Q 2240 448 2464 672 
+Q 2688 896 2688 1280 
+L 2688 1600 
+Q 2688 1984 2464 2208 
+Q 2240 2432 1856 2432 
+L 1350 2432 
+L 1350 2931 
+L 2496 4147 
+L 576 4147 
+L 576 4672 
+L 3149 4672 
+L 3149 4134 
+L 2022 2938 
+Q 2598 2893 2931 2537 
+Q 3264 2182 3264 1600 
+L 3264 1280 
+Q 3264 659 2883 297 
+Q 2502 -64 1850 -64 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-33"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6d" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="239.999939"/>
+      </g>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_22">
+      <path d="M 70.61 97.065169 
+L 1369.44 97.065169 
+" clip-path="url(#p1c8fc27267)" style="fill: none; stroke: #404040; stroke-linecap: round"/>
+     </g>
+     <g id="text_22">
+      <!-- 400ms -->
+      <g style="fill: #c0c0b0" transform="translate(13.11 102.905169) scale(0.16 -0.16)">
+       <defs>
+        <path id="JetBrainsMonoNerdFontComplete-Regular-34" d="M 2560 0 
+L 2560 1024 
+L 448 1024 
+L 448 1926 
+L 2150 4672 
+L 2803 4672 
+L 1024 1798 
+L 1024 1549 
+L 2560 1549 
+L 2560 2688 
+L 3136 2688 
+L 3136 0 
+L 2560 0 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-34"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="59.999985"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-30" x="119.999969"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-6d" x="179.999954"/>
+       <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73" x="239.999939"/>
+      </g>
+     </g>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 129.647727 465.140306 
+L 154.39408 465.140306 
+L 154.39408 367.600395 
+L 129.647727 367.600395 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 200.351592 465.140306 
+L 225.097945 465.140306 
+L 225.097945 348.27645 
+L 200.351592 348.27645 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 271.055457 465.140306 
+L 295.80181 465.140306 
+L 295.80181 360.238892 
+L 271.055457 360.238892 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 341.759322 465.140306 
+L 366.505675 465.140306 
+L 366.505675 364.839831 
+L 341.759322 364.839831 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 412.463187 465.140306 
+L 437.20954 465.140306 
+L 437.20954 362.999456 
+L 412.463187 362.999456 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 483.167052 465.140306 
+L 507.913405 465.140306 
+L 507.913405 351.037014 
+L 483.167052 351.037014 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 553.870917 465.140306 
+L 578.61727 465.140306 
+L 578.61727 357.478329 
+L 553.870917 357.478329 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 624.574782 465.140306 
+L 649.321135 465.140306 
+L 649.321135 342.755323 
+L 624.574782 342.755323 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 695.278647 465.140306 
+L 720.025 465.140306 
+L 720.025 346.436074 
+L 695.278647 346.436074 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 765.982512 465.140306 
+L 790.728865 465.140306 
+L 790.728865 364.839831 
+L 765.982512 364.839831 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 836.686377 465.140306 
+L 861.43273 465.140306 
+L 861.43273 363.919644 
+L 836.686377 363.919644 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 907.390242 465.140306 
+L 932.136595 465.140306 
+L 932.136595 208.407898 
+L 907.390242 208.407898 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 978.094107 465.140306 
+L 1002.84046 465.140306 
+L 1002.84046 223.130903 
+L 978.094107 223.130903 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 1048.797972 465.140306 
+L 1073.544325 465.140306 
+L 1073.544325 218.529964 
+L 1048.797972 218.529964 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 1119.501837 465.140306 
+L 1144.24819 465.140306 
+L 1144.24819 362.999456 
+L 1119.501837 362.999456 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 1190.205702 465.140306 
+L 1214.952055 465.140306 
+L 1214.952055 362.999456 
+L 1190.205702 362.999456 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 1260.909567 465.140306 
+L 1285.65592 465.140306 
+L 1285.65592 347.356262 
+L 1260.909567 347.356262 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #fcca79"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 154.39408 465.140306 
+L 179.140433 465.140306 
+L 179.140433 213.008837 
+L 154.39408 213.008837 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 225.097945 465.140306 
+L 249.844298 465.140306 
+L 249.844298 196.445456 
+L 225.097945 196.445456 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_22">
+    <path d="M 295.80181 465.140306 
+L 320.548163 465.140306 
+L 320.548163 212.088649 
+L 295.80181 212.088649 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_23">
+    <path d="M 366.505675 465.140306 
+L 391.252028 465.140306 
+L 391.252028 216.689589 
+L 366.505675 216.689589 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_24">
+    <path d="M 437.20954 465.140306 
+L 461.955893 465.140306 
+L 461.955893 217.609776 
+L 437.20954 217.609776 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_25">
+    <path d="M 507.913405 465.140306 
+L 532.659758 465.140306 
+L 532.659758 179.882075 
+L 507.913405 179.882075 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_26">
+    <path d="M 578.61727 465.140306 
+L 603.363623 465.140306 
+L 603.363623 98.905545 
+L 578.61727 98.905545 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_27">
+    <path d="M 649.321135 465.140306 
+L 674.067488 465.140306 
+L 674.067488 69.459534 
+L 649.321135 69.459534 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_28">
+    <path d="M 720.025 465.140306 
+L 744.771353 465.140306 
+L 744.771353 63.018219 
+L 720.025 63.018219 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_29">
+    <path d="M 790.728865 465.140306 
+L 815.475218 465.140306 
+L 815.475218 222.210716 
+L 790.728865 222.210716 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_30">
+    <path d="M 861.43273 465.140306 
+L 886.179083 465.140306 
+L 886.179083 221.290528 
+L 861.43273 221.290528 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_31">
+    <path d="M 932.136595 465.140306 
+L 956.882948 465.140306 
+L 956.882948 34.492396 
+L 932.136595 34.492396 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_32">
+    <path d="M 1002.84046 465.140306 
+L 1027.586813 465.140306 
+L 1027.586813 55.656716 
+L 1002.84046 55.656716 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_33">
+    <path d="M 1073.544325 465.140306 
+L 1098.290678 465.140306 
+L 1098.290678 52.896152 
+L 1073.544325 52.896152 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_34">
+    <path d="M 1144.24819 465.140306 
+L 1168.994543 465.140306 
+L 1168.994543 214.849213 
+L 1144.24819 214.849213 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_35">
+    <path d="M 1214.952055 465.140306 
+L 1239.698408 465.140306 
+L 1239.698408 214.849213 
+L 1214.952055 214.849213 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="patch_36">
+    <path d="M 1285.65592 465.140306 
+L 1310.402273 465.140306 
+L 1310.402273 199.20602 
+L 1285.65592 199.20602 
+z
+" clip-path="url(#p1c8fc27267)" style="fill: #f7a43d"/>
+   </g>
+   <g id="legend_1">
+    <g id="patch_37">
+     <path d="M 78.31 53.297344 
+L 166.31 53.297344 
+Q 168.51 53.297344 168.51 51.097344 
+L 168.51 20.66 
+Q 168.51 18.46 166.31 18.46 
+L 78.31 18.46 
+Q 76.11 18.46 76.11 20.66 
+L 76.11 51.097344 
+Q 76.11 53.297344 78.31 53.297344 
+z
+" style="fill: #323232; opacity: 0.8; stroke: #cccccc; stroke-linejoin: miter"/>
+    </g>
+    <g id="patch_38">
+     <path d="M 80.51 31.407344 
+L 102.51 31.407344 
+L 102.51 23.707344 
+L 80.51 23.707344 
+z
+" style="fill: #fcca79"/>
+    </g>
+    <g id="text_23">
+     <!-- ripgrep -->
+     <g style="fill: #c0c0b0" transform="translate(111.31 31.407344) scale(0.11 -0.11)">
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-69" x="59.999985"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="119.999969"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-67" x="179.999954"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="239.999939"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="299.999924"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-70" x="359.999908"/>
+     </g>
+    </g>
+    <g id="patch_39">
+     <path d="M 80.51 46.917344 
+L 102.51 46.917344 
+L 102.51 39.217344 
+L 80.51 39.217344 
+z
+" style="fill: #f7a43d"/>
+    </g>
+    <g id="text_24">
+     <!-- searcher -->
+     <g style="fill: #c0c0b0" transform="translate(111.31 46.917344) scale(0.11 -0.11)">
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-73"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="59.999985"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-61" x="119.999969"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="179.999954"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-63" x="239.999939"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-68" x="299.999924"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-65" x="359.999908"/>
+      <use xlink:href="#JetBrainsMonoNerdFontComplete-Regular-72" x="419.999893"/>
+     </g>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p1c8fc27267">
+   <rect x="70.61" y="12.96" width="1298.83" height="452.180306"/>
+  </clipPath>
+ </defs>
+</svg>
