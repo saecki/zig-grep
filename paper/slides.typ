@@ -410,7 +410,9 @@
   ),
   highlighted-parts: (
     (1,2),
+    (2,),
     (4,5),
+    (5,),
     (6,),
     (2,5,7),
   )
@@ -439,7 +441,15 @@
 ]
 
 #slide(title: "Synchronization")[
+  #code[```zig
+    const State = enum(u32) {
+        Empty,
+        NonEmpty,
+        Full,
+    };
+  ```]
   #dimmed-code[```zig
+
     const AtomicQueue = struct {
         mutex: std.Thread.Mutex,
   ```]
@@ -601,9 +611,6 @@
 
 #slide(title: "Results R7 5800u & 16Gb")[
   #image("result_thinkpad_r7_5800u_16gb_subtitles.svg")
-]
-
-#slide(title: "Result")[
 ]
 
 #focus-slide(background-color: dark-surface, new-section: none)[
