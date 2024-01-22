@@ -171,7 +171,7 @@ fn run(stdout: Stdout) !void {
     var queue = AtomicQueue(DisplayPath).init(queue_buf);
     var searchers = ArrayList(std.Thread).init(allocator);
     defer searchers.deinit();
-    try searchers.ensureTotalCapacity(num_threads);
+    try searchers.ensureTotalCapacity(num_searchers);
     for (0..num_searchers) |_| {
         const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
         const sink_buf = SinkBuf.init(&sink, buf);
@@ -248,7 +248,7 @@ fn run(stdout: Stdout) !void {
     var stack = AtomicStack(DirIter).init(&stack_buf, num_walkers);
     var walkers = ArrayList(std.Thread).init(allocator);
     defer walkers.deinit();
-    try walkers.ensureTotalCapacity(num_threads);
+    try walkers.ensureTotalCapacity(num_walkers);
     for (0..num_walkers) |_| {
         const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
         const sink_buf = SinkBuf.init(&sink, buf);
