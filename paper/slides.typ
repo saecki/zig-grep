@@ -234,14 +234,7 @@
 )
 
 #slide(title: "Comptime")[
-  #set text(
-    size: 16pt,
-    ligatures: false,
-    discretionary-ligatures: false,
-    historical-ligatures: false,
-    alternates: false,
-    hyphenate: false,
-  )
+  #set text(size: 16pt)
   #code-space()
   #text(fill: rgb("#8ec07c"), "Build Summary:") 0/3 steps succeeded; 1 failed #text(fill: luma(120), "(disable with --summary none)")\
   install #text(fill: luma(120), "transitive failure")\
@@ -256,14 +249,7 @@
 ]
 
 #slide(title: "Comptime")[
-  #set text(
-    size: 16pt,
-    ligatures: false,
-    discretionary-ligatures: false,
-    historical-ligatures: false,
-    alternates: false,
-    hyphenate: false,
-  )
+  #set text(size: 16pt)
   #dimmed-code[```
   Build Summary: 0/3 steps succeeded; 1 failed (disable with --summary none)
   install transitive failure
@@ -281,14 +267,7 @@
 ]
 
 #slide(title: "Comptime")[
-  #set text(
-    size: 16pt,
-    ligatures: false,
-    discretionary-ligatures: false,
-    historical-ligatures: false,
-    alternates: false,
-    hyphenate: false,
-  )
+  #set text(size: 16pt)
   #dimmed-code[```
   Build Summary: 0/3 steps succeeded; 1 failed (disable with --summary none)
   install transitive failure

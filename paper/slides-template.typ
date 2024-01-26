@@ -27,11 +27,11 @@
     header: none,
     footer: none,
   )
-  set text()
   set text(
     fill: rgb("#c0c0b0"),
     size: 25pt,
     font: "JetbrainsMono Nerd Font",
+    features: (calt: 0),
     lang: "en",
   )
   show footnote.entry: set text(size: .6em)
@@ -230,9 +230,7 @@
 
 #let dimmed-code(code) = {
   show raw.where(block: true): r => {
-    block(
-      text(size: 16pt, font: "JetbrainsMono Nerd Font", fill: rgb("#484848"), r.text)
-    )
+    text(size: 16pt, font: "JetbrainsMono Nerd Font", fill: rgb("#484848"), r.text)
   }
 
   code-space()
@@ -241,9 +239,9 @@
 
 #let code(code) = {
   set raw(theme: "Catppuccin-macchiato.tmTheme")
-  show raw.where(block: true): r => block(
+  show raw.where(block: true): r => {
     text(size: 16pt, font: "JetbrainsMono Nerd Font", fill: rgb("#f8eddd"), r)
-  )
+  }
 
   code-space()
   code
