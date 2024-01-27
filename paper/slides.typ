@@ -566,9 +566,9 @@
     };
   ```]
 
-  `0b100` truncated to `0b00`
+  `0b100` truncated to `0b00`?
   
-  already fixed on master
+  bug already fixed on master
 ]
 
 
