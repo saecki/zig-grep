@@ -4,7 +4,7 @@
 #let author = "Tobias Schmitz"
 
 #let primary-color = rgb("#f7a43d")
-#let primary-dimmed-color = rgb("#b29d7c")
+#let primary-dimmed-color = rgb("#403c38")
 #let footer-a-color = rgb("#f7a43d")
 #let footer-b-color = rgb("#fcca79")
 #let dark-surface = rgb("#202020")
