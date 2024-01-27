@@ -1,6 +1,8 @@
 #import "@preview/polylux:0.3.1": *
 #import "@preview/codelst:2.0.0": sourcecode, code-frame
 
+#let font_name = "JetbrainsMono NF"
+
 #let slide-colors = state("slide-colors", (:))
 #let slide-short-title = state("slide-short-title", none)
 #let slide-short-author = state("slide-short-author", none)
@@ -30,7 +32,7 @@
   set text(
     fill: rgb("#c0c0b0"),
     size: 25pt,
-    font: "JetbrainsMono Nerd Font",
+    font: font_name,
     features: (calt: 0),
     lang: "en",
   )
@@ -230,7 +232,7 @@
 
 #let dimmed-code(code) = {
   show raw.where(block: true): r => {
-    text(size: 16pt, font: "JetbrainsMono Nerd Font", fill: rgb("#484848"), r.text)
+    text(size: 16pt, font: font_name, fill: rgb("#484848"), r.text)
   }
 
   code-space()
@@ -240,7 +242,7 @@
 #let code(code) = {
   set raw(theme: "Catppuccin-macchiato.tmTheme")
   show raw.where(block: true): r => {
-    text(size: 16pt, font: "JetbrainsMono Nerd Font", fill: rgb("#f8eddd"), r)
+    text(size: 16pt, font: font_name, fill: rgb("#f8eddd"), r)
   }
 
   code-space()
