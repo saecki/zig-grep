@@ -584,12 +584,12 @@
   #image("result_desktop_r5_5600x_32gb_linux.svg")
 ]
 
-#slide(title: "Results R5 5600x & 32Gb")[
-  #image("result_desktop_r5_5600x_32gb_subtitles.svg")
-]
-
 #slide(title: "Results R7 5800u & 16Gb")[
   #image("result_thinkpad_r7_5800u_16gb_linux.svg")
+]
+
+#slide(title: "Results R5 5600x & 32Gb")[
+  #image("result_desktop_r5_5600x_32gb_subtitles.svg")
 ]
 
 #slide(title: "Results R7 5800u & 16Gb")[
