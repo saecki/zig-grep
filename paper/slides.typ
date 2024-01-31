@@ -126,43 +126,6 @@
 )
 
 #walk-through-slides(
-  title: "Error Handling",
-  code-parts: (
-    ```zig
-      // named error set
-      const IntError = error{
-          IsNull,
-          Invalid,
-      };
-      fn checkNull(num: usize) IntError!void {
-          if (num == 0) {
-              return error.IsNull;
-          }
-      }
-    ```,
-    ```zig
-
-      switch (checkNull(value))
-    ```,
-    ```zig
-        .IsNull => doOneThing(),
-    ```,
-    ```zig
-        .Invalid => doAnotherThing(),
-    ```,
-    ```zig
-      }
-    ```,
-  ),
-  highlighted-parts: (
-    (0,),
-    (1,4,),
-    (2,),
-    (3,),
-  ),
-)
-
-#walk-through-slides(
   title: "Comptime", 
   code-parts: (
     ```kotlin
@@ -470,8 +433,9 @@
         self.buf.append(item)
   ```,
   ```zig
-
-        const new_state: State = .NonEmpty;
+        const new_state = if (self.len < self.buf.len) .NonEmpty else .Full;
+  ```,
+  ```zig
         self.state.store(new_state, Ordering.SeqCst);
   ```,
   ```zig
@@ -482,15 +446,15 @@
   ```,
   ),
   highlighted-parts: (
-    (0,9),
+    (0,10),
     (1,2),
     (2,),
     (3,5),
     (4,),
     (6,),
     (7,),
-    (8,),
-    (2,9),
+    (8,9),
+    (2,10),
   ),
 )
 
