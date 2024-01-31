@@ -330,20 +330,20 @@
     ```,
     ```zig
 
-          var input_paths = ArrayList([]const u8).init(allocator);
+          var list = ArrayList([]const u8).init(allocator);
     ```,
     ```zig
-          defer input_paths.deinit();
+          defer list.deinit();
     ```,
     ```zig
 
-          const pattern = try parseArgs(&input_paths) orelse {
-              return;
-          };
+          ...
     ```,
     ```zig
 
           // 1. input_paths.deinit();
+    ```,
+    ```zig
           // 2. _ = gpa.deinit();
     ```,
     ```zig
@@ -356,7 +356,9 @@
     (4,5),
     (5,),
     (6,),
-    (2,5,7),
+    (2,5,7,8,9),
+    (5,7,9),
+    (2,8,9),
   )
 )
 
