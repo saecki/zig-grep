@@ -79,8 +79,6 @@
   No exceptions
   #v(1em)
   Errors as values
-  #v(1em)
-  Error sets and unions
 ]
 
 #walk-through-slides(
