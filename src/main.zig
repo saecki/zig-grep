@@ -21,7 +21,7 @@ const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 19;
 const SINK_BUF_SIZE = 1 << 12;
-const SEACHER_QUEUE_BUF_SIZE = 1 << 8;
+const SEARCHER_QUEUE_BUF_SIZE = 1 << 8;
 
 const WalkerContext = struct {
     allocator: Allocator,
@@ -166,7 +166,7 @@ fn run(stdout: Stdout) !void {
     var sink = Sink.init(stdout);
 
     // start searcher threads
-    var queue_buf = try allocator.alloc(DisplayPath, SEACHER_QUEUE_BUF_SIZE);
+    var queue_buf = try allocator.alloc(DisplayPath, SEARCHER_QUEUE_BUF_SIZE);
     defer allocator.free(queue_buf);
     var queue = AtomicQueue(DisplayPath).init(queue_buf);
     var searchers = ArrayList(std.Thread).init(allocator);
