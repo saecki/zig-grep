@@ -333,6 +333,9 @@ fn walkPath(
             break;
         };
 
+        path_buf.shrinkRetainingCapacity(dirname_len);
+        try path_buf.appendSlice(e.name);
+
         // skip hidden files
         if (!opts.hidden and e.name[0] == '.') {
             if (opts.debug) {
@@ -347,9 +350,6 @@ fn walkPath(
             }
             continue;
         }
-
-        path_buf.shrinkRetainingCapacity(dirname_len);
-        try path_buf.appendSlice(e.name);
 
         switch (e.kind) {
             .file => {
