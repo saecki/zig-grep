@@ -553,6 +553,12 @@ fn searchFile(
     // detect binary files
     const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
     if (null_byte) |_| {
+        if (opts.debug) {
+            try ctx.sink.writeAll("Not searching binary file: \"");
+            try printPath(&ctx.sink, ctx.input_paths, path);
+            try ctx.sink.writeAll("\"\n");
+            try ctx.sink.end();
+        }
         return;
     }
 
