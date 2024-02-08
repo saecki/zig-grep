@@ -189,7 +189,7 @@ fn run(stdout: Stdout) !void {
         defer line_buf.deinit();
         try line_buf.ensureTotalCapacity(opts.before_context);
 
-        const params = Params {
+        const params = Params{
             .regex = regex,
             .opts = &opts,
             .input_paths = input_paths.items,
@@ -226,7 +226,7 @@ fn run(stdout: Stdout) !void {
     for (0..num_threads) |_| {
         const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
         const sink_buf = SinkBuf.init(&sink, buf);
-        const state = WorkerContext {
+        const ctx = WorkerContext{
             .allocator = allocator,
             .stack = &stack,
             .sink = sink_buf,
@@ -234,7 +234,7 @@ fn run(stdout: Stdout) !void {
             .opts = &opts,
             .input_paths = input_paths.items,
         };
-        const thread = try std.Thread.spawn(.{}, startWorker, .{state});
+        const thread = try std.Thread.spawn(.{}, startWorker, .{ctx});
         try workers.append(thread);
     }
     defer {
@@ -265,20 +265,19 @@ fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !
     return regex;
 }
 
-fn startWorker(state: WorkerContext) !void {
-    var allocator = state.allocator;
-    var stack = state.stack;
-    var sink = state.sink;
+fn startWorker(ctx: WorkerContext) !void {
+    var allocator = ctx.allocator;
+    var stack = ctx.stack;
+    var sink = ctx.sink;
     defer allocator.free(sink.buf);
-    const params = Params {
-        .regex = state.regex,
-        .opts = state.opts,
-        .input_paths = state.input_paths,
+    const params = Params{
+        .regex = ctx.regex,
+        .opts = ctx.opts,
+        .input_paths = ctx.input_paths,
     };
 
-
     // reuse buffers
-    var path_buf = ArrayList(u8).init(state.allocator);
+    var path_buf = ArrayList(u8).init(ctx.allocator);
     defer path_buf.deinit();
     var text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
     defer allocator.free(text_buf);
@@ -469,7 +468,7 @@ inline fn getDirIterOrSearch(
             const dir = try std.fs.openIterableDirAbsolute(path.abs, open_options);
 
             const owned_abs_path = try allocSlice(u8, allocator, path.abs);
-            const owned_path = DisplayPath {
+            const owned_path = DisplayPath{
                 .abs = owned_abs_path,
                 .display_prefix = path.display_prefix,
                 .sub_path_offset = path.sub_path_offset,
