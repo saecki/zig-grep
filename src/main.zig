@@ -31,13 +31,13 @@ const WorkerContext = struct {
 };
 
 const DirIter = struct {
+    /// abs path has to be freed by the worker.
     path: DisplayPath,
     iter: IterableDir.Iterator,
 };
 
 /// Ownership is transferred to the search worker, so it is responsible for cleaning up the resources.
 const DisplayPath = struct {
-    /// Has to be freed by the worker.
     abs: []const u8,
     /// An index of a path that the user provided, use this as a prefix to make output more readable.
     display_prefix: ?u16,
@@ -192,7 +192,7 @@ fn run(stdout: Stdout) !void {
                 .sub_path_offset = @truncate(abs_path.len),
             };
 
-            const dir_iter = try getDirIterOrSearch(text_buf, &line_buf, &sink_buf, &opts, input_paths.items, regex, path);
+            const dir_iter = try getDirIterOrSearch(allocator, text_buf, &line_buf, &sink_buf, &opts, input_paths.items, regex, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
                     .priority = 0,
@@ -337,11 +337,11 @@ fn walkPath(
             },
             .directory => {
                 const open_options = .{ .no_follow = true };
-                const abs_path = try allocSlice(u8, ctx.allocator, path_buf.items);
+                const owned_abs_path = try allocSlice(u8, ctx.allocator, path_buf.items);
 
-                const sub_dir = try std.fs.openIterableDirAbsolute(abs_path, open_options);
+                const sub_dir = try std.fs.openIterableDirAbsolute(owned_abs_path, open_options);
                 const sub_dir_path = DisplayPath{
-                    .abs = abs_path,
+                    .abs = owned_abs_path,
                     .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
@@ -368,7 +368,7 @@ fn walkPath(
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
                     };
-                    const dir_iter = try walkLink(text_buf, line_buf, &ctx.sink, ctx.opts, ctx.input_paths, ctx.regex, link_file_path);
+                    const dir_iter = try walkLink(ctx.allocator, text_buf, line_buf, &ctx.sink, ctx.opts, ctx.input_paths, ctx.regex, link_file_path);
                     if (dir_iter) |d| {
                         const link_dir_entry = WalkerEntry{
                             .priority = dir_entry.priority + 1,
@@ -390,6 +390,7 @@ fn walkPath(
 }
 
 fn walkLink(
+    allocator: Allocator,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
@@ -427,10 +428,11 @@ fn walkLink(
         return error.Loop;
     }
 
-    return getDirIterOrSearch(text_buf, line_buf, sink, opts, input_paths, regex, link_path);
+    return getDirIterOrSearch(allocator, text_buf, line_buf, sink, opts, input_paths, regex, link_path);
 }
 
 inline fn getDirIterOrSearch(
+    allocator: Allocator,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
@@ -451,15 +453,22 @@ inline fn getDirIterOrSearch(
             file.close();
             const open_options = .{ .no_follow = true };
             const dir = try std.fs.openIterableDirAbsolute(path.abs, open_options);
+
+            const owned_abs_path = try allocSlice(u8, allocator, path.abs);
+            const owned_path = DisplayPath {
+                .abs = owned_abs_path,
+                .display_prefix = path.display_prefix,
+                .sub_path_offset = path.sub_path_offset,
+            };
             return DirIter{
                 .iter = dir.iterate(),
-                .path = path,
+                .path = owned_path,
             };
         },
         .sym_link => {
             file.close();
             if (opts.follow_links) {
-                return walkLink(text_buf, line_buf, sink, opts, input_paths, regex, path);
+                return walkLink(allocator, text_buf, line_buf, sink, opts, input_paths, regex, path);
             } else if (opts.debug) {
                 try sink.writeAll("Not following link: \"");
                 try printPath(sink, input_paths, &path);
