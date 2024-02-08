@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const Futex = std.Thread.Futex;
 const File = std.fs.File;
 
 pub const MessageType = enum {
@@ -20,7 +19,7 @@ fn AtomicMessage(comptime T: type) type {
 pub fn AtomicStack(comptime T: type) type {
     return struct {
         mutex: std.Thread.Mutex,
-        state: std.atomic.Atomic(u32),
+        condition: std.Thread.Condition,
         alive_workers: u32,
         buf: *ArrayList(Entry),
 
@@ -30,11 +29,6 @@ pub fn AtomicStack(comptime T: type) type {
             priority: u16,
             data: T,
         };
-        pub const State = enum(u32) {
-            Empty,
-            NonEmpty,
-            Stop,
-        };
 
         /// Initialize the stack, there is no `deinit`.
         ///
@@ -43,10 +37,9 @@ pub fn AtomicStack(comptime T: type) type {
         pub fn init(buf: *ArrayList(Entry), num_workers: u32) Self {
             std.debug.assert(num_workers > 0);
 
-            const state: State = if (buf.items.len == 0) .Empty else .NonEmpty;
             return Self{
                 .mutex = std.Thread.Mutex{},
-                .state = std.atomic.Atomic(u32).init(@intFromEnum(state)),
+                .condition = std.Thread.Condition{},
                 .alive_workers = num_workers,
                 .buf = buf,
             };
@@ -67,8 +60,7 @@ pub fn AtomicStack(comptime T: type) type {
                 }
             }
             try self.buf.insert(i, entry);
-            self.state.store(@intFromEnum(State.NonEmpty), std.atomic.Ordering.SeqCst);
-            Futex.wake(&self.state, 1);
+            self.condition.signal();
         }
 
         /// Get the topmost item or a stop signal.
@@ -82,23 +74,16 @@ pub fn AtomicStack(comptime T: type) type {
             while (self.buf.items.len == 0) {
                 self.alive_workers -= 1;
                 if (self.alive_workers == 0) {
-                    self.state.store(@intFromEnum(State.Stop), std.atomic.Ordering.SeqCst);
-                    Futex.wake(&self.state, std.math.maxInt(u32));
+                    self.condition.broadcast();
                     return .Stop;
                 }
 
-                self.mutex.unlock();
-                Futex.wait(&self.state, @intFromEnum(State.Empty));
-                self.mutex.lock();
+                self.condition.wait(&self.mutex);
 
                 self.alive_workers += 1;
             }
 
             const val = self.buf.pop();
-
-            if (self.buf.items.len == 0) {
-                self.state.store(@intFromEnum(State.Empty), std.atomic.Ordering.SeqCst);
-            }
 
             return Message{ .Some = val };
         }
