@@ -219,10 +219,8 @@ fn run(stdout: Stdout) !void {
     }
 
     // start worker threads
+    var group = std.Thread.WaitGroup{};
     var stack = AtomicStack(DirIter).init(&stack_buf, num_threads);
-    var workers = ArrayList(std.Thread).init(allocator);
-    defer workers.deinit();
-    try workers.ensureTotalCapacity(num_threads);
     for (0..num_threads) |_| {
         const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
         const sink_buf = SinkBuf.init(&sink, buf);
@@ -234,14 +232,9 @@ fn run(stdout: Stdout) !void {
             .opts = &opts,
             .input_paths = input_paths.items,
         };
-        const thread = try std.Thread.spawn(.{}, startWorker, .{ctx});
-        try workers.append(thread);
+        _ = try std.Thread.spawn(.{}, startWorker, .{&group, ctx});
     }
-    defer {
-        for (workers.items) |t| {
-            t.join();
-        }
-    }
+    group.wait();
 }
 
 fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
@@ -265,7 +258,10 @@ fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !
     return regex;
 }
 
-fn startWorker(ctx: WorkerContext) !void {
+fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
+    group.start();
+    defer group.finish();
+
     var allocator = ctx.allocator;
     var stack = ctx.stack;
     var sink = ctx.sink;
