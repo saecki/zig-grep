@@ -138,34 +138,14 @@ pub const SinkBuf = struct {
 
     const Self = @This();
 
-    const Writer = struct {
-        sink_buf: *SinkBuf,
-
-        pub const Error = std.os.WriteError;
-
-        pub fn writeByte(self: Writer, byte: u8) !void {
-            try self.sink_buf.writeByte(byte);
-        }
-
-        pub fn writeAll(self: Writer, slice: []const u8) !void {
-            try self.sink_buf.writeAll(slice);
-        }
-
-        pub fn writeByteNTimes(self: Writer, byte: u8, n: usize) !void {
-            var bytes: [256]u8 = undefined;
-            @memset(bytes[0..], byte);
-
-            var remaining: usize = n;
-            while (remaining > 0) {
-                const to_write = @min(remaining, bytes.len);
-                try self.sink_buf.writeAll(bytes[0..to_write]);
-                remaining -= to_write;
-            }
-        }
-    };
+    const Writer = std.io.GenericWriter(
+        *Self,
+        std.posix.WriteError,
+        Self.writeFn,
+    );
 
     inline fn writer(self: *Self) Writer {
-        return Writer{ .sink_buf = self };
+        return Writer{ .context = self };
     }
 
     /// Initialize the queue, there is no `deinit`, and the `buf` has to be
@@ -179,6 +159,12 @@ pub const SinkBuf = struct {
             .pos = 0,
             .exclusive_writer = null,
         };
+    }
+
+    // only used for writer
+    fn writeFn(context: *Self, bytes: []const u8) std.posix.WriteError!usize {
+        try context.writeAll(bytes);
+        return bytes.len;
     }
 
     /// Write into the thread local buffer, if it overflows an exclusive
@@ -202,7 +188,7 @@ pub const SinkBuf = struct {
         }
         if (slice.len > self.buf.len) {
             // no need to buffer slice is larger than our buffer anyway.
-            var w = self.ensureExclusive();
+            const w = self.ensureExclusive();
             try w.writeAll(slice);
         } else {
             @memcpy(self.buf[self.pos .. self.pos + slice.len], slice);
@@ -218,7 +204,7 @@ pub const SinkBuf = struct {
 
     /// Force exclusive transaction to start and write content.
     pub fn flush(self: *Self) !void {
-        var w = self.ensureExclusive();
+        const w = self.ensureExclusive();
         try self.flushInternal(w);
     }
 
@@ -228,7 +214,7 @@ pub const SinkBuf = struct {
             return;
         }
 
-        var w = self.ensureExclusive();
+        const w = self.ensureExclusive();
         try self.flushInternal(w);
         self.sink.endExclusive(&self.exclusive_writer);
     }
@@ -237,7 +223,7 @@ pub const SinkBuf = struct {
         if (self.exclusive_writer) |w| {
             return w;
         } else {
-            var w = self.sink.startExclusive();
+            const w = self.sink.startExclusive();
             self.exclusive_writer = w;
             return w;
         }

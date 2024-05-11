@@ -112,16 +112,19 @@ const USER_ARGS = [_]UserArg{
     },
 };
 
-const HELP_MSG = genHelp(USER_ARGS.len, USER_ARGS) catch unreachable;
-fn genHelp(comptime LEN: usize, args: [LEN]UserArg) ![]u8 {
+const HELP_MSG = msg: {
+    var buf = [_]u8{0} ** (2 * USER_ARGS.len * 74);
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const msg = genHelp(USER_ARGS.len, USER_ARGS, fba.allocator()) catch unreachable;
+    break :msg std.fmt.comptimePrint("{s}", .{msg});
+};
+fn genHelp(comptime LEN: usize, args: [LEN]UserArg, allocator: Allocator) ![]u8 {
     const MAX_HELP_MSG_WIDTH = 74;
     const SHORT_ARG_WIDTH = 4;
     const HELP_SPACE = 4;
     const ARG_PLACEHOLDER = " <arg>";
 
-    var buf = [_]u8{0} ** (2 * USER_ARGS.len * MAX_HELP_MSG_WIDTH);
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var msg = ArrayList(u8).init(fba.allocator());
+    var msg = ArrayList(u8).init(allocator);
     var writer = msg.writer();
 
     try writer.writeAll("usage: searcher [OPTIONS] PATTERN [PATH ...]\n");
