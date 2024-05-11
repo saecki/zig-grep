@@ -1,0 +1,29 @@
+|                                                    | ripgrep               | searcher              |       |
+| name                                               | min   | avg   | max   | min   | avg   | max   | %     |
+|----------------------------------------------------|-------|-------|-------|-------|-------|-------|-------|
+| literal_linux                                      |   101 |   103 |   106 |   265 |   274 |   289 |   265 |
+| literal_linux_hidden                               |   107 |   115 |   127 |   283 |   292 |   301 |   252 |
+| linux_literal_ignore_case                          |   108 |   110 |   114 |   271 |   275 |   283 |   248 |
+| linux_pattern_prefix                               |   101 |   104 |   109 |   267 |   270 |   273 |   259 |
+| linux_pattern_prefix_with_context                  |   106 |   108 |   111 |   265 |   269 |   273 |   247 |
+| linux_pattern_prefix_ignore_case                   |   120 |   122 |   124 |   305 |   310 |   315 |   253 |
+| linux_pattern_suffix                               |   114 |   115 |   117 |   388 |   398 |   411 |   344 |
+| linux_pattern_suffix_with_context                  |   126 |   129 |   133 |   416 |   430 |   448 |   332 |
+| linux_pattern_suffix_ignore_case                   |   124 |   127 |   129 |   425 |   437 |   452 |   343 |
+| linux_word                                         |   102 |   105 |   109 |   262 |   264 |   267 |   251 |
+| linux_word_with_heading                            |   102 |   105 |   110 |   262 |   265 |   267 |   250 |
+| linux_word_ignore_case                             |   265 |   271 |   279 |   463 |   468 |   472 |   172 |
+| linux_no_literal                                   |   247 |   253 |   263 |   438 |   445 |   450 |   176 |
+| linux_no_literal_ignore_case                       |   247 |   253 |   268 |   438 |   448 |   452 |   176 |
+| linux_alternatives                                 |   106 |   108 |   111 |   269 |   272 |   276 |   250 |
+| linux_alternatives_with_heading                    |   107 |   109 |   111 |   269 |   272 |   276 |   249 |
+| linux_alternatives_ignore_case                     |   122 |   124 |   128 |   285 |   289 |   291 |   232 |
+| subtitles_literal                                  |  1746 |  1765 |  1781 |  7222 |  7494 |  7656 |   424 |
+| subtitles_literal_ignore_case                      |  2107 |  2131 |  2152 |  7952 |  8055 |  8101 |   377 |
+| subtitles_alternatives                             |  2072 |  2090 |  2112 |  8034 |  8111 |  8171 |   387 |
+| subtitles_alternatives_ignore_case                 |  3678 |  3685 |  3693 |  9659 |  9776 |  9826 |   265 |
+| subtitles_surrounding_words                        |  1781 |  1791 |  1799 |  7495 |  7543 |  7640 |   421 |
+| subtitles_surrounding_words_ignore_case            |  2147 |  2154 |  2160 |  7916 |  8065 |  8136 |   374 |
+| subtitles_no_literal                               | 18383 | 18476 | 18579 | 24502 | 24581 | 24719 |   133 |
+| subtitles_no_literal_ignore_case                   | 18380 | 18524 | 18652 | 24298 | 24556 | 24663 |   132 |
+Avg runtime compared to ripgrep: 272%
