@@ -20,8 +20,7 @@ pub fn build(b: *std.Build) void {
         .name = "zig-grep",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .main_pkg_path = LazyPath.relative("src"),
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -36,11 +35,11 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("rt");
     exe.linkSystemLibrary("util");
     // link rure itself
-    exe.addIncludePath(LazyPath.relative("rure/regex-capi/include"));
-    exe.addLibraryPath(LazyPath.relative("rure/target/release"));
+    exe.addIncludePath(b.path("rure/regex-capi/include"));
+    exe.addLibraryPath(b.path("rure/target/release"));
     exe.linkSystemLibrary2("rure", .{
         .needed = true,
-        .preferred_link_mode = .Static,
+        .preferred_link_mode = .static,
     });
 
     // This declares intent for the executable to be installed into the
