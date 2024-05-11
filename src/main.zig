@@ -521,7 +521,7 @@ fn searchFile(
     var last_printed_line_num: ?u32 = null;
 
     // detect binary files
-    const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
+    const null_byte = std.mem.indexOfScalar(u8, text[0..@min(1024, text.len)], 0x00);
     if (null_byte) |_| {
         if (opts.debug) {
             try sink.writeAll("Not searching binary file: \"");
