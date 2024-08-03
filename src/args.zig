@@ -218,7 +218,7 @@ pub fn parseArgs(stdout: Stdout, opts: *UserOptions, input_paths: *ArrayList([]c
         } else if (std.mem.startsWith(u8, arg, "-")) {
             const short_args = arg[1..];
             short_args: for (short_args, 0..) |short_arg, i| {
-                const char_len = utf8_char_len(short_arg);
+                const char_len = try std.unicode.utf8ByteSequenceLength(short_arg);
                 if (char_len > 1) {
                     const char = short_args[i .. i + char_len];
                     try stdout.print("Unknown flag \"{s}\"\n", .{char});
@@ -367,30 +367,4 @@ fn parseNum(
     };
 
     return num;
-}
-
-fn utf8_char_len(first_byte: u8) usize {
-    var leading_ones: u8 = 0;
-    const HIGH_BYTE: u8 = 0x80;
-    while (((HIGH_BYTE >> @truncate(leading_ones)) & first_byte) != 0) {
-        leading_ones += 1;
-    }
-    switch (leading_ones) {
-        0 => return 1,
-        else => return @as(usize, leading_ones),
-    }
-}
-
-fn check(string: []const u8, len: usize) !void {
-    const first_byte = string[0];
-    const char_len = utf8_char_len(first_byte);
-    // std.debug.print("{s}, first_byte: {b}, char_len {}\n", .{ string, first_byte, char_len });
-    try std.testing.expectEqual(char_len, len);
-}
-
-test "utf-8 char len" {
-    try check("a", 1);
-    try check("ö", 2);
-    try check("\u{2757}", 3);
-    try check("\u{01FAE0}", 4);
 }
