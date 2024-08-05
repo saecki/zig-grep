@@ -19,7 +19,7 @@ const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 19;
 const SINK_BUF_SIZE = 1 << 12;
-const IO_URING_BUF_SIZE = 1 << 3;
+const IO_URING_BUF_SIZE = 1 << 2;
 
 const DIR_OPEN_OPTIONS = Dir.OpenDirOptions{
     .iterate = true,
@@ -101,6 +101,7 @@ const ResourceError = error{
     ProcessFdQuotaExceeded,
     SharingViolation,
     SocketNotConnected,
+    SubmissionQueueFull,
     SymLinkLoop,
     SystemFdQuotaExceeded,
     SystemResources,
@@ -210,8 +211,9 @@ fn run(stdout: Stdout) !void {
                 .display_prefix = @truncate(i),
                 .sub_path_offset = @truncate(abs_path.len),
             };
+            var ring: Ring = undefined;
 
-            const dir_iter = try getDirIterOrSearch(allocator, &line_buf, &sink_buf, &params, path);
+            const dir_iter = try getDirIterOrSearch(allocator, &ring, &line_buf, &sink_buf, &params, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
                     .priority = 0,
@@ -286,14 +288,14 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(params.opts.before_context);
 
-    const ring = try Ring.init(allocator);
+    var ring = try Ring.init(allocator);
     defer ring.deinit();
 
     while (true) {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, ring, &line_buf, &sink, &params, &path_buf, entry);
+                try walkPath(allocator, stack, &ring, &line_buf, &sink, &params, &path_buf, entry);
             },
             .Stop => break,
         }
@@ -303,13 +305,13 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
 const Ring = struct {
     ring: std.os.linux.IoUring,
 
-    paths: [IO_URING_BUF_SIZE]DisplayPath = [IO_URING_BUF_SIZE]DisplayPath{undefined},
-    fds: [IO_URING_BUF_SIZE]std.os.linux.fd_t = [IO_URING_BUF_SIZE]std.os.linux.fd_t{0},
-    next_file_idx: u32 = 0,
+    paths: [IO_URING_BUF_SIZE]DisplayPath = undefined,
+    fds: [IO_URING_BUF_SIZE]std.os.linux.fd_t = undefined,
+    next_file_idx: u8 = 0,
 
     text_base_buf: []u8,
     text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec,
-    next_text_buf_idx: u32 = 0,
+    next_text_buf_idx: u8 = 0,
 
     allocator: Allocator,
 
@@ -317,16 +319,17 @@ const Ring = struct {
 
     fn init(allocator: Allocator) !Self {
         const io_uring = try std.os.linux.IoUring.init(IO_URING_BUF_SIZE, 0);
-        const text_base_buf = allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
-        const text_bufs = [IO_URING_BUF_SIZE][]u8{undefined};
+        const text_base_buf = try allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
+        var text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec = undefined;
         for (0..IO_URING_BUF_SIZE) |i| {
-            const slice = text_base_buf[i * TEXT_BUF_SIZE..(i + 1) * TEXT_BUF_SIZE];
-            text_bufs[i] = slice;
+            const slice = text_base_buf[i * TEXT_BUF_SIZE .. (i + 1) * TEXT_BUF_SIZE];
+            text_bufs[i] = std.posix.iovec{ .base = slice.ptr, .len = slice.len };
         }
-        const self = Self {
+        const self = Self{
             .ring = io_uring,
-            .allocator = allocator,
+            .text_base_buf = text_base_buf,
             .text_bufs = text_bufs,
+            .allocator = allocator,
         };
 
         return self;
@@ -343,14 +346,14 @@ const Ring = struct {
         self.allocator.free(self.text_base_buf);
     }
 
-    fn file_idx(self: *Self) u32 {
+    fn file_idx(self: *Self) u8 {
         const idx = self.next_file_idx;
         // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
         self.next_file_idx = (self.next_file_idx + 1) % IO_URING_BUF_SIZE;
         return idx;
     }
 
-    fn text_buf_idx(self: *Self) u32 {
+    fn text_buf_idx(self: *Self) u8 {
         const idx = self.next_text_buf_idx;
         // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
         self.next_text_buf_idx = (self.next_text_buf_idx + 1) % IO_URING_BUF_SIZE;
@@ -362,7 +365,6 @@ fn walkPath(
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
     ring: *Ring,
-    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
@@ -407,20 +409,24 @@ fn walkPath(
 
         switch (e.kind) {
             .file => {
-                const path = DisplayPath{
-                    .abs = path_buf.items,
+                const file_idx = ring.file_idx();
+                const abs_path = try allocSlice(u8, ring.allocator, path_buf.items);
+                ring.paths[file_idx] = DisplayPath{
+                    .abs = abs_path,
                     .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
-
-                const file_idx = ring.file_idx();
-                const dir_fd = std.fs.cwd();
+                const dir_fd = std.fs.cwd().fd;
                 const pathz = try std.posix.toPosixPath(path_buf.items);
-                const flags = std.os.linux.O { .NO_FOLLOW = true };
+                const flags = std.os.linux.O{ .NOFOLLOW = true };
                 const mode: std.os.linux.mode_t = 1 << 2; // READONLY
-                ring.ring.openat_direct(file_idx, dir_fd, pathz, flags, mode, file_idx);
+                // TODO: file_index is ignored
+                const sqe = try ring.ring.openat_direct(file_idx, dir_fd, &pathz, flags, mode, file_idx);
+                ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
 
-                try searchFile(text_buf, line_buf, sink, params, &path);
+                // ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
+
+                try searchFile(ring, line_buf, sink, params, abs_path);
             },
             .directory => {
                 const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
@@ -454,7 +460,7 @@ fn walkPath(
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
                     };
-                    const dir_iter = try walkLink(allocator, text_buf, line_buf, sink, params, link_file_path);
+                    const dir_iter = try walkLink(allocator, ring, line_buf, sink, params, link_file_path);
                     if (dir_iter) |d| {
                         const link_dir_entry = WalkerEntry{
                             .priority = dir_entry.priority + 1,
@@ -474,7 +480,7 @@ fn walkPath(
         }
 
         if (ring.cq_ready() > 0) {
-            const cqe = try ring.copy_cqe();
+            // const cqe = try ring.copy_cqe();
 
             // ring.read(0, fd: posix.fd_t, buffer: ReadBuffer, offset: u64);
         }
@@ -483,7 +489,7 @@ fn walkPath(
 
 fn walkLink(
     allocator: Allocator,
-    text_buf: []u8,
+    ring: *Ring,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
@@ -517,12 +523,12 @@ fn walkLink(
         return error.Loop;
     }
 
-    return getDirIterOrSearch(allocator, text_buf, line_buf, sink, params, link_path);
+    return getDirIterOrSearch(allocator, ring, line_buf, sink, params, link_path);
 }
 
 inline fn getDirIterOrSearch(
     allocator: Allocator,
-    text_buf: []u8,
+    ring: *Ring,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
@@ -531,8 +537,8 @@ inline fn getDirIterOrSearch(
     const stat = try std.fs.cwd().statFile(path.abs);
     switch (stat.kind) {
         .file => {
-            const file = try std.fs.openFileAbsolute(path.abs, FILE_OPEN_FLAGS);
-            try searchFile(text_buf, line_buf, sink, params, file, &path);
+            // TODO
+            // try searchFile(text_buf, line_buf, sink, params, file, &path);
         },
         .directory => {
             const dir = try std.fs.openDirAbsolute(path.abs, DIR_OPEN_OPTIONS);
@@ -550,7 +556,7 @@ inline fn getDirIterOrSearch(
         },
         .sym_link => {
             if (params.opts.follow_links) {
-                return walkLink(allocator, text_buf, line_buf, sink, params, path);
+                return walkLink(allocator, ring, line_buf, sink, params, path);
             } else if (params.opts.debug) {
                 try sink.writeAll("Not following link: \"");
                 try printPath(sink, params.input_paths, &path);
@@ -570,16 +576,19 @@ fn searchFile(
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
-    file_idx: u32,
-    text_buf_idx: u32,
+    file_idx: u8,
+    text_buf_idx: u8,
 ) !void {
     defer ring.ring.close_direct(file_idx, file_idx);
+    defer ring.allocator.free(ring.paths[file_idx].abs);
 
+    const path = &ring.paths[file_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
     var chunk_buf = ChunkBuffer{
-        .file = file,
-        .items = text_buf,
+        .ring = ring,
+        .file_idx = file_idx,
+        .text_buf_idx = text_buf_idx,
         .pos = 0,
         .data_end = 0,
         .is_last_chunk = false,
@@ -851,8 +860,9 @@ fn searchFile(
 }
 
 const ChunkBuffer = struct {
-    file: File,
-    items: []u8,
+    ring: *Ring,
+    file_idx: u8,
+    text_buf_idx: u8,
     pos: usize,
     /// The end of data inside the chunk buffer, not the end of the text slice
     /// returned by refillChunkBuffer().
@@ -871,6 +881,14 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
     const num_reused_bytes = chunk_buf.data_end - new_start_pos;
     std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.data_end]);
     chunk_buf.pos = chunk_buf.pos - new_start_pos;
+
+    // TODO: use two buffers and start read operation while searching the other one
+    const ring = chunk_buf.ring;
+    const user_data = chunk_buf.file_idx;
+    const fd = ring.fds[chunk_buf.file_idx];
+    const buffer = ring.text_bufs[chunk_buf.text_buf_idx][num_reused_bytes..];
+    const offset = -1; // just continue reading at the last position
+    chunk_buf.ring.ring.read_fixed(user_data, fd, buffer, offset, chunk_buf.text_buf_idx);
 
     const len = try chunk_buf.file.readAll(chunk_buf.items[num_reused_bytes..]);
     chunk_buf.data_end = num_reused_bytes + len;
