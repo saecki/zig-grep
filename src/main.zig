@@ -8,7 +8,6 @@ const ArrayList = std.ArrayList;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const Stdout = File.Writer;
-const IoUring = std.os.linux.IoUring;
 
 const args = @import("args.zig");
 const UserOptions = args.UserOptions;
@@ -212,7 +211,7 @@ fn run(stdout: Stdout) !void {
                 .sub_path_offset = @truncate(abs_path.len),
             };
 
-            const dir_iter = try getDirIterOrSearch(allocator, text_buf, &line_buf, &sink_buf, &params, path);
+            const dir_iter = try getDirIterOrSearch(allocator, &line_buf, &sink_buf, &params, path);
             if (dir_iter) |d| {
                 try stack_buf.append(WalkerEntry{
                     .priority = 0,
@@ -283,33 +282,86 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     // reuse buffers
     var path_buf = ArrayList(u8).init(ctx.allocator);
     defer path_buf.deinit();
-    const text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
-    defer allocator.free(text_buf);
     var line_buf = ArrayList([]const u8).init(allocator);
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(params.opts.before_context);
 
-    const ring = try IoUring.init(IO_URING_BUF_SIZE, 0);
+    const ring = try Ring.init(allocator);
     defer ring.deinit();
-
-    const ring_paths = [IO_URING_BUF_SIZE]DisplayPath{undefined};
-    const ring_fds = [IO_URING_BUF_SIZE]std.os.linux.fd_t{0};
 
     while (true) {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, ring, text_buf, &line_buf, &sink, &params, &path_buf, entry);
+                try walkPath(allocator, stack, ring, &line_buf, &sink, &params, &path_buf, entry);
             },
             .Stop => break,
         }
     }
 }
 
+const Ring = struct {
+    ring: std.os.linux.IoUring,
+
+    paths: [IO_URING_BUF_SIZE]DisplayPath = [IO_URING_BUF_SIZE]DisplayPath{undefined},
+    fds: [IO_URING_BUF_SIZE]std.os.linux.fd_t = [IO_URING_BUF_SIZE]std.os.linux.fd_t{0},
+    next_file_idx: u32 = 0,
+
+    text_base_buf: []u8,
+    text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec,
+    next_text_buf_idx: u32 = 0,
+
+    allocator: Allocator,
+
+    const Self = @This();
+
+    fn init(allocator: Allocator) !Self {
+        const io_uring = try std.os.linux.IoUring.init(IO_URING_BUF_SIZE, 0);
+        const text_base_buf = allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
+        const text_bufs = [IO_URING_BUF_SIZE][]u8{undefined};
+        for (0..IO_URING_BUF_SIZE) |i| {
+            const slice = text_base_buf[i * TEXT_BUF_SIZE..(i + 1) * TEXT_BUF_SIZE];
+            text_bufs[i] = slice;
+        }
+        const self = Self {
+            .ring = io_uring,
+            .allocator = allocator,
+            .text_bufs = text_bufs,
+        };
+
+        return self;
+    }
+
+    /// The `Ring` can't be moved once this has been called.
+    fn setup(self: *Self) void {
+        self.ring.register_files(self.fds);
+        self.ring.register_buffers(self.text_bufs);
+    }
+
+    fn deinit(self: *Self) void {
+        self.ring.deinit();
+        self.allocator.free(self.text_base_buf);
+    }
+
+    fn file_idx(self: *Self) u32 {
+        const idx = self.next_file_idx;
+        // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
+        self.next_file_idx = (self.next_file_idx + 1) % IO_URING_BUF_SIZE;
+        return idx;
+    }
+
+    fn text_buf_idx(self: *Self) u32 {
+        const idx = self.next_text_buf_idx;
+        // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
+        self.next_text_buf_idx = (self.next_text_buf_idx + 1) % IO_URING_BUF_SIZE;
+        return idx;
+    }
+};
+
 fn walkPath(
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
-    ring: *IoUring,
+    ring: *Ring,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
@@ -328,6 +380,7 @@ fn walkPath(
     var dirname_len = path_buf.items.len;
 
     while (true) {
+        // TODO: only look at new entries while the io_uring buffer is non-full
         const e = try dir_entry.data.iter.next() orelse {
             allocator.free(dir_path.abs);
             dir_entry.data.iter.dir.close();
@@ -360,14 +413,14 @@ fn walkPath(
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
 
-                const file_buf_idx = 0; // TODO: buffer of same size as io_uring to store path, so lifetime stays valid
+                const file_idx = ring.file_idx();
                 const dir_fd = std.fs.cwd();
                 const pathz = try std.posix.toPosixPath(path_buf.items);
                 const flags = std.os.linux.O { .NO_FOLLOW = true };
                 const mode: std.os.linux.mode_t = 1 << 2; // READONLY
-                ring.openat_direct(file_buf_idx, dir_fd, pathz, flags, mode, );
+                ring.ring.openat_direct(file_idx, dir_fd, pathz, flags, mode, file_idx);
 
-                try searchFile(text_buf, line_buf, sink, params, file, &path);
+                try searchFile(text_buf, line_buf, sink, params, &path);
             },
             .directory => {
                 const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
@@ -422,9 +475,8 @@ fn walkPath(
 
         if (ring.cq_ready() > 0) {
             const cqe = try ring.copy_cqe();
-            cqe.res
 
-            ring.read(0, fd: posix.fd_t, buffer: ReadBuffer, offset: u64);
+            // ring.read(0, fd: posix.fd_t, buffer: ReadBuffer, offset: u64);
         }
     }
 }
@@ -514,14 +566,14 @@ inline fn getDirIterOrSearch(
 }
 
 fn searchFile(
-    text_buf: []u8,
+    ring: *Ring,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
-    file: File,
-    path: *const DisplayPath,
+    file_idx: u32,
+    text_buf_idx: u32,
 ) !void {
-    defer file.close();
+    defer ring.ring.close_direct(file_idx, file_idx);
 
     const opts = params.opts;
     const input_paths = params.input_paths;
