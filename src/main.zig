@@ -508,7 +508,7 @@ fn searchFile(
     const opts = params.opts;
     const input_paths = params.input_paths;
     var chunk_buf = ChunkBuffer{
-        .reader = file.reader(),
+        .file = file,
         .items = text_buf,
         .pos = 0,
         .data_end = 0,
@@ -781,7 +781,7 @@ fn searchFile(
 }
 
 const ChunkBuffer = struct {
-    reader: File.Reader,
+    file: File,
     items: []u8,
     pos: usize,
     /// The end of data inside the chunk buffer, not the end of the text slice
@@ -791,7 +791,7 @@ const ChunkBuffer = struct {
 };
 
 /// Moves the data after `new_start_pos` to the start of the internal buffer,
-/// fills the remaining part of the buffer with data from `reader` and updates
+/// fills the remaining part of the buffer with data from `file` and updates
 /// `chunk_buf.pos`, `chunk_buf.data_end` and `chunk_buf.is_last_chunk`.
 /// Then returns a slice of text from the start of the internal buffer until
 /// the last line ending. Newlines are included if they are present.
@@ -802,7 +802,7 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
     std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.data_end]);
     chunk_buf.pos = chunk_buf.pos - new_start_pos;
 
-    const len = try chunk_buf.reader.readAll(chunk_buf.items[num_reused_bytes..]);
+    const len = try chunk_buf.file.readAll(chunk_buf.items[num_reused_bytes..]);
     chunk_buf.data_end = num_reused_bytes + len;
     chunk_buf.is_last_chunk = chunk_buf.data_end < chunk_buf.items.len;
 
