@@ -8,6 +8,7 @@ const ArrayList = std.ArrayList;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const Stdout = File.Writer;
+const IoUring = std.os.linux.IoUring;
 
 const args = @import("args.zig");
 const UserOptions = args.UserOptions;
@@ -19,6 +20,7 @@ const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 19;
 const SINK_BUF_SIZE = 1 << 12;
+const IO_URING_BUF_SIZE = 1 << 3;
 
 const DIR_OPEN_OPTIONS = Dir.OpenDirOptions{
     .iterate = true,
@@ -287,11 +289,17 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(params.opts.before_context);
 
+    const ring = try IoUring.init(IO_URING_BUF_SIZE, 0);
+    defer ring.deinit();
+
+    const ring_paths = [IO_URING_BUF_SIZE]DisplayPath{undefined};
+    const ring_fds = [IO_URING_BUF_SIZE]std.os.linux.fd_t{0};
+
     while (true) {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, text_buf, &line_buf, &sink, &params, &path_buf, entry);
+                try walkPath(allocator, stack, ring, text_buf, &line_buf, &sink, &params, &path_buf, entry);
             },
             .Stop => break,
         }
@@ -301,6 +309,7 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
 fn walkPath(
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
+    ring: *IoUring,
     text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
@@ -350,7 +359,14 @@ fn walkPath(
                     .display_prefix = dir_path.display_prefix,
                     .sub_path_offset = dir_path.sub_path_offset,
                 };
-                const file = try std.fs.openFileAbsolute(path.abs, FILE_OPEN_FLAGS);
+
+                const file_buf_idx = 0; // TODO: buffer of same size as io_uring to store path, so lifetime stays valid
+                const dir_fd = std.fs.cwd();
+                const pathz = try std.posix.toPosixPath(path_buf.items);
+                const flags = std.os.linux.O { .NO_FOLLOW = true };
+                const mode: std.os.linux.mode_t = 1 << 2; // READONLY
+                ring.openat_direct(file_buf_idx, dir_fd, pathz, flags, mode, );
+
                 try searchFile(text_buf, line_buf, sink, params, file, &path);
             },
             .directory => {
@@ -402,6 +418,13 @@ fn walkPath(
             },
             // ignore
             .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
+        }
+
+        if (ring.cq_ready() > 0) {
+            const cqe = try ring.copy_cqe();
+            cqe.res
+
+            ring.read(0, fd: posix.fd_t, buffer: ReadBuffer, offset: u64);
         }
     }
 }
