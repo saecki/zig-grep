@@ -453,15 +453,13 @@ inline fn getDirIterOrSearch(
     params: *const Params,
     path: DisplayPath,
 ) !?DirIter {
-    const file = try std.fs.openFileAbsolute(path.abs, FILE_OPEN_FLAGS);
-
-    const stat = try file.stat();
+    const stat = try std.fs.cwd().statFile(path.abs);
     switch (stat.kind) {
         .file => {
+            const file = try std.fs.openFileAbsolute(path.abs, FILE_OPEN_FLAGS);
             try searchFile(text_buf, line_buf, sink, params, file, &path);
         },
         .directory => {
-            file.close();
             const dir = try std.fs.openDirAbsolute(path.abs, DIR_OPEN_OPTIONS);
 
             const owned_abs_path = try allocSlice(u8, allocator, path.abs);
@@ -476,7 +474,6 @@ inline fn getDirIterOrSearch(
             };
         },
         .sym_link => {
-            file.close();
             if (params.opts.follow_links) {
                 return walkLink(allocator, text_buf, line_buf, sink, params, path);
             } else if (params.opts.debug) {
@@ -487,9 +484,7 @@ inline fn getDirIterOrSearch(
             }
         },
         // ignore
-        .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {
-            file.close();
-        },
+        .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
     }
 
     return null;
