@@ -19,7 +19,6 @@ const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 19;
 const SINK_BUF_SIZE = 1 << 12;
-const IO_URING_BUF_SIZE = 1 << 2;
 
 const DIR_OPEN_OPTIONS = Dir.OpenDirOptions{
     .iterate = true,
@@ -101,7 +100,6 @@ const ResourceError = error{
     ProcessFdQuotaExceeded,
     SharingViolation,
     SocketNotConnected,
-    SubmissionQueueFull,
     SymLinkLoop,
     SystemFdQuotaExceeded,
     SystemResources,
@@ -109,6 +107,17 @@ const ResourceError = error{
     UnrecognizedVolume,
     UnsupportedReparsePointType,
     WouldBlock,
+
+    // io_uring
+    BufferInvalid,
+    CompletionQueueOvercommitted,
+    FileDescriptorInBadState,
+    FileDescriptorInvalid,
+    OpcodeNotSupported,
+    RingShuttingDown,
+    SignalInterrupt,
+    SubmissionQueueEntryInvalid,
+    SubmissionQueueFull,
 };
 
 pub fn main() void {
@@ -211,6 +220,7 @@ fn run(stdout: Stdout) !void {
                 .display_prefix = @truncate(i),
                 .sub_path_offset = @truncate(abs_path.len),
             };
+            // TODO
             var ring: Ring = undefined;
 
             const dir_iter = try getDirIterOrSearch(allocator, &ring, &line_buf, &sink_buf, &params, path);
@@ -302,16 +312,19 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     }
 }
 
+const IO_URING_BUF_SIZE = 1 << 2;
+const ringmask = u4;
+const ringsize = u2;
 const Ring = struct {
     ring: std.os.linux.IoUring,
 
-    paths: [IO_URING_BUF_SIZE]DisplayPath = undefined,
+    // direct file descriptors managed by the kernel
     fds: [IO_URING_BUF_SIZE]std.os.linux.fd_t = undefined,
-    next_file_idx: u8 = 0,
 
     text_base_buf: []u8,
     text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec,
-    next_text_buf_idx: u8 = 0,
+    paths: [IO_URING_BUF_SIZE]DisplayPath = undefined,
+    used_mask: ringmask = 0,
 
     allocator: Allocator,
 
@@ -322,8 +335,8 @@ const Ring = struct {
         const text_base_buf = try allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
         var text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec = undefined;
         for (0..IO_URING_BUF_SIZE) |i| {
-            const slice = text_base_buf[i * TEXT_BUF_SIZE .. (i + 1) * TEXT_BUF_SIZE];
-            text_bufs[i] = std.posix.iovec{ .base = slice.ptr, .len = slice.len };
+            text_bufs[i].base = i * TEXT_BUF_SIZE;
+            text_bufs[i].len = TEXT_BUF_SIZE;
         }
         const self = Self{
             .ring = io_uring,
@@ -346,18 +359,27 @@ const Ring = struct {
         self.allocator.free(self.text_base_buf);
     }
 
-    fn file_idx(self: *Self) u8 {
-        const idx = self.next_file_idx;
-        // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
-        self.next_file_idx = (self.next_file_idx + 1) % IO_URING_BUF_SIZE;
-        return idx;
+    fn get_buf_idx(self: *Self) ?ringsize {
+        // leading zero of bitwise inverse
+        // => leading ones
+        // => first zero
+        const idx = @clz(~self.used_mask);
+        if (idx < IO_URING_BUF_SIZE) {
+            return @truncate(idx);
+        }
+        return null;
     }
 
-    fn text_buf_idx(self: *Self) u8 {
-        const idx = self.next_text_buf_idx;
-        // TODO: store which buffers are in use (and select a free one), because CQE's aren't guaranteed to be in order
-        self.next_text_buf_idx = (self.next_text_buf_idx + 1) % IO_URING_BUF_SIZE;
-        return idx;
+    fn use_buf_idx(self: *Self, idx: ringsize) void {
+        self.used_mask |= @as(ringmask, 1) << idx;
+    }
+
+    fn return_buf_idx(self: *Self, idx: ringsize) void {
+        self.used_mask &= ~(@as(ringmask, 1) << idx);
+    }
+
+    fn num_files_in_use(self: *Self) ringsize {
+        return @popCount(self.used_mask);
     }
 };
 
@@ -382,109 +404,159 @@ fn walkPath(
     var dirname_len = path_buf.items.len;
 
     while (true) {
-        // TODO: only look at new entries while the io_uring buffer is non-full
-        const e = try dir_entry.data.iter.next() orelse {
-            allocator.free(dir_path.abs);
-            dir_entry.data.iter.dir.close();
-            break;
-        };
+        if (ring.get_buf_idx()) |buf_idx| {
+            // TODO: only look at new entries while the io_uring buffer is non-full
+            const e = try dir_entry.data.iter.next() orelse {
+                allocator.free(dir_path.abs);
+                dir_entry.data.iter.dir.close();
+                break;
+            };
 
-        path_buf.shrinkRetainingCapacity(dirname_len);
-        try path_buf.appendSlice(e.name);
+            path_buf.shrinkRetainingCapacity(dirname_len);
+            try path_buf.appendSlice(e.name);
 
-        // skip hidden files
-        if (!params.opts.hidden and e.name[0] == '.') {
-            if (params.opts.debug) {
-                try sink.writeAll("Not searching hidden path: \"");
-                try printPath(sink, params.input_paths, &DisplayPath{
-                    .abs = path_buf.items,
-                    .display_prefix = dir_path.display_prefix,
-                    .sub_path_offset = dir_path.sub_path_offset,
-                });
-                try sink.writeAll("\"\n");
-                try sink.end();
-            }
-            continue;
-        }
-
-        switch (e.kind) {
-            .file => {
-                const file_idx = ring.file_idx();
-                const abs_path = try allocSlice(u8, ring.allocator, path_buf.items);
-                ring.paths[file_idx] = DisplayPath{
-                    .abs = abs_path,
-                    .display_prefix = dir_path.display_prefix,
-                    .sub_path_offset = dir_path.sub_path_offset,
-                };
-                const dir_fd = std.fs.cwd().fd;
-                const pathz = try std.posix.toPosixPath(path_buf.items);
-                const flags = std.os.linux.O{ .NOFOLLOW = true };
-                const mode: std.os.linux.mode_t = 1 << 2; // READONLY
-                // TODO: file_index is ignored
-                const sqe = try ring.ring.openat_direct(file_idx, dir_fd, &pathz, flags, mode, file_idx);
-                ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
-
-                // ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
-
-                try searchFile(ring, line_buf, sink, params, abs_path);
-            },
-            .directory => {
-                const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
-
-                const sub_dir = try std.fs.openDirAbsolute(owned_abs_path, DIR_OPEN_OPTIONS);
-                const sub_dir_path = DisplayPath{
-                    .abs = owned_abs_path,
-                    .display_prefix = dir_path.display_prefix,
-                    .sub_path_offset = dir_path.sub_path_offset,
-                };
-                const sub_dir_entry = WalkerEntry{
-                    .priority = dir_entry.priority + 1,
-                    .data = DirIter{
-                        .iter = sub_dir.iterate(),
-                        .path = sub_dir_path,
-                    },
-                };
-
-                // put back dir iter on the stack, and traverse depth first
-                try stack.push(dir_entry);
-
-                try path_buf.append(std.fs.path.sep);
-                dirname_len = path_buf.items.len;
-                dir_entry = sub_dir_entry;
-                dir_path = sub_dir_entry.data.path;
-            },
-            .sym_link => {
-                if (params.opts.follow_links) {
-                    const link_file_path = DisplayPath{
+            // skip hidden files
+            if (!params.opts.hidden and e.name[0] == '.') {
+                if (params.opts.debug) {
+                    try sink.writeAll("Not searching hidden path: \"");
+                    try printPath(sink, params.input_paths, &DisplayPath{
                         .abs = path_buf.items,
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
-                    };
-                    const dir_iter = try walkLink(allocator, ring, line_buf, sink, params, link_file_path);
-                    if (dir_iter) |d| {
-                        const link_dir_entry = WalkerEntry{
-                            .priority = dir_entry.priority + 1,
-                            .data = d,
-                        };
-                        try stack.push(link_dir_entry);
-                    }
-                } else if (params.opts.debug) {
-                    try sink.writeAll("Not following link: \"");
-                    try printPath(sink, params.input_paths, &dir_path);
+                    });
                     try sink.writeAll("\"\n");
                     try sink.end();
                 }
-            },
-            // ignore
-            .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
+                continue;
+            }
+
+            switch (e.kind) {
+                .file => {
+                    const owned_abs_path = try allocSlice(u8, ring.allocator, path_buf.items);
+                    ring.paths[buf_idx] = DisplayPath{
+                        .abs = owned_abs_path,
+                        .display_prefix = dir_path.display_prefix,
+                        .sub_path_offset = dir_path.sub_path_offset,
+                    };
+                    ring.use_buf_idx(buf_idx);
+
+                    const user_data = to_user_data(.OpenFile, buf_idx);
+                    const dir_fd = std.fs.cwd().fd;
+                    const pathz = try std.posix.toPosixPath(path_buf.items);
+                    const flags = std.os.linux.O{ .NOFOLLOW = true };
+                    const mode: std.os.linux.mode_t = 1 << 2; // READONLY
+                    _ = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, 0);
+                    _ = try ring.ring.submit();
+                },
+                .directory => {
+                    const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
+
+                    const sub_dir = try std.fs.openDirAbsolute(owned_abs_path, DIR_OPEN_OPTIONS);
+                    const sub_dir_path = DisplayPath{
+                        .abs = owned_abs_path,
+                        .display_prefix = dir_path.display_prefix,
+                        .sub_path_offset = dir_path.sub_path_offset,
+                    };
+                    const sub_dir_entry = WalkerEntry{
+                        .priority = dir_entry.priority + 1,
+                        .data = DirIter{
+                            .iter = sub_dir.iterate(),
+                            .path = sub_dir_path,
+                        },
+                    };
+
+                    // put back dir iter on the stack, and traverse depth first
+                    try stack.push(dir_entry);
+
+                    try path_buf.append(std.fs.path.sep);
+                    dirname_len = path_buf.items.len;
+                    dir_entry = sub_dir_entry;
+                    dir_path = sub_dir_entry.data.path;
+                },
+                .sym_link => {
+                    if (params.opts.follow_links) {
+                        const link_file_path = DisplayPath{
+                            .abs = path_buf.items,
+                            .display_prefix = dir_path.display_prefix,
+                            .sub_path_offset = dir_path.sub_path_offset,
+                        };
+                        const dir_iter = try walkLink(allocator, ring, line_buf, sink, params, link_file_path);
+                        if (dir_iter) |d| {
+                            const link_dir_entry = WalkerEntry{
+                                .priority = dir_entry.priority + 1,
+                                .data = d,
+                            };
+                            try stack.push(link_dir_entry);
+                        }
+                    } else if (params.opts.debug) {
+                        try sink.writeAll("Not following link: \"");
+                        try printPath(sink, params.input_paths, &dir_path);
+                        try sink.writeAll("\"\n");
+                        try sink.end();
+                    }
+                },
+                // ignore
+                .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
+            }
+
+            if (ring.ring.cq_ready() > 0) {
+                try waitForCqe();
+            }
         }
 
-        if (ring.cq_ready() > 0) {
-            // const cqe = try ring.copy_cqe();
-
-            // ring.read(0, fd: posix.fd_t, buffer: ReadBuffer, offset: u64);
-        }
+        try waitForCqe();
     }
+
+    while (ring.num_files_in_use() > 0) {
+        try waitForCqe();
+    }
+}
+
+const OpKind = enum(u8) {
+    OpenFile,
+    ReadFile,
+};
+
+fn to_user_data(kind: OpKind, buf_idx: ringsize) u64 {
+    return (@as(u64, kind) << 32) & @as(u64, buf_idx);
+}
+
+fn from_user_data(user_data: u64) .{ OpKind, ringsize } {
+    const kind = @as(OpKind, user_data >> 32);
+    const buf_idx: ringsize = @truncate(user_data);
+    return .{ kind, buf_idx };
+}
+
+fn waitForCqe(
+    ring: *Ring,
+    line_buf: *ArrayList([]const u8),
+    sink: *SinkBuf,
+    params: *const Params,
+) !void {
+    const cqe = try ring.ring.copy_cqe();
+    if (cqe.res < 0) {
+        // TODO: error
+    }
+
+    const kind, const buf_idx = from_user_data(cqe.user_data);
+
+    switch (kind) {
+        .OpenFile => {
+            const fd = cqe.res;
+        },
+        .ReadFile => {
+            searchFile(ring, line_buf, sink, params, buf_idx);
+        },
+    }
+
+    // const cqe = try ring.copy_cqe();
+
+    // TODO: wait for opened file an initiate read, if successfully read pass into searchFile
+    // - maybe store state of file op in user_data field
+
+    // ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
+
+    // try searchFile(ring, line_buf, sink, params, owned_abs_path);
 }
 
 fn walkLink(
@@ -576,19 +648,26 @@ fn searchFile(
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
-    file_idx: u8,
-    text_buf_idx: u8,
+    buf_idx: u8,
+    fd: std.os.linux.fd_t,
 ) !void {
-    defer ring.ring.close_direct(file_idx, file_idx);
-    defer ring.allocator.free(ring.paths[file_idx].abs);
+    defer {
+        ring.allocator.free(ring.paths[buf_idx].abs);
 
-    const path = &ring.paths[file_idx];
+        // FIXME
+        const sqe = ring.ring.close_direct(0, fd) catch unreachable;
+        _ = sqe;
+        // TODO: don't require a cqe by using this flag??? std.os.linux.IORING_FEAT_CQE_SKIP
+
+        ring.return_buf_idx(buf_idx);
+    }
+
+    const path = &ring.paths[buf_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
     var chunk_buf = ChunkBuffer{
         .ring = ring,
-        .file_idx = file_idx,
-        .text_buf_idx = text_buf_idx,
+        .buf_idx = buf_idx,
         .pos = 0,
         .data_end = 0,
         .is_last_chunk = false,
@@ -861,8 +940,7 @@ fn searchFile(
 
 const ChunkBuffer = struct {
     ring: *Ring,
-    file_idx: u8,
-    text_buf_idx: u8,
+    buf_idx: u8,
     pos: usize,
     /// The end of data inside the chunk buffer, not the end of the text slice
     /// returned by refillChunkBuffer().
@@ -876,6 +954,10 @@ const ChunkBuffer = struct {
 /// Then returns a slice of text from the start of the internal buffer until
 /// the last line ending. Newlines are included if they are present.
 inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]const u8 {
+    // TODO: have a main text buffer that is twice the size of the iovecs used by iouring
+    // always read a complete IO_URING_BUF_SIZE and copy over to the main text_buffer,
+    // at the position we are at.
+    // knowing what size to read allows reading further parts of the file while searching the current buffer...
     std.debug.assert(new_start_pos <= chunk_buf.pos);
 
     const num_reused_bytes = chunk_buf.data_end - new_start_pos;
@@ -889,6 +971,7 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
     const buffer = ring.text_bufs[chunk_buf.text_buf_idx][num_reused_bytes..];
     const offset = -1; // just continue reading at the last position
     chunk_buf.ring.ring.read_fixed(user_data, fd, buffer, offset, chunk_buf.text_buf_idx);
+    // TODO: block
 
     const len = try chunk_buf.file.readAll(chunk_buf.items[num_reused_bytes..]);
     chunk_buf.data_end = num_reused_bytes + len;
