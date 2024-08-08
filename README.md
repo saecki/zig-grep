@@ -1,4 +1,4 @@
-# seminar-pl-zig-grep
+# zig-grep
 
 ## Build & Run
 - Install the [zig toolchain](https://ziglang.org/download)
