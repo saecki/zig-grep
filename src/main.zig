@@ -294,6 +294,8 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     // reuse buffers
     var path_buf = ArrayList(u8).init(ctx.allocator);
     defer path_buf.deinit();
+    const text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
+    defer allocator.free(text_buf);
     var line_buf = ArrayList([]const u8).init(allocator);
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(params.opts.before_context);
@@ -305,7 +307,7 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, &ring, &line_buf, &sink, &params, &path_buf, entry);
+                try walkPath(allocator, stack, &ring, text_buf, &line_buf, &sink, &params, &path_buf, entry);
             },
             .Stop => break,
         }
@@ -313,18 +315,20 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
 }
 
 const IO_URING_BUF_SIZE = 1 << 2;
-const ringmask = u4;
-const ringsize = u2;
 const Ring = struct {
     ring: std.os.linux.IoUring,
+    /// external queue for CQEs that should be handled later
+    queue: [IO_URING_BUF_SIZE]Cqe = undefined,
+    queue_len: u8 = 0,
 
-    // direct file descriptors managed by the kernel
+    /// direct file descriptors managed by the kernel
     fds: [IO_URING_BUF_SIZE]std.os.linux.fd_t = undefined,
 
+    /// memory area that the `std.posix.iovec`s point to
     text_base_buf: []u8,
     text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec,
     paths: [IO_URING_BUF_SIZE]DisplayPath = undefined,
-    used_mask: ringmask = 0,
+    used_mask: u8 = 0,
 
     allocator: Allocator,
 
@@ -335,7 +339,7 @@ const Ring = struct {
         const text_base_buf = try allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
         var text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec = undefined;
         for (0..IO_URING_BUF_SIZE) |i| {
-            text_bufs[i].base = i * TEXT_BUF_SIZE;
+            text_bufs[i].base = text_base_buf.ptr + i * TEXT_BUF_SIZE;
             text_bufs[i].len = TEXT_BUF_SIZE;
         }
         const self = Self{
@@ -359,27 +363,34 @@ const Ring = struct {
         self.allocator.free(self.text_base_buf);
     }
 
-    fn get_buf_idx(self: *Self) ?ringsize {
+    fn get_buf_idx(self: *Self) ?u8 {
         // leading zero of bitwise inverse
         // => leading ones
         // => first zero
         const idx = @clz(~self.used_mask);
         if (idx < IO_URING_BUF_SIZE) {
-            return @truncate(idx);
+            return @intCast(idx);
         }
         return null;
     }
 
-    fn use_buf_idx(self: *Self, idx: ringsize) void {
-        self.used_mask |= @as(ringmask, 1) << idx;
+    fn use_buf_idx(self: *Self, idx: u8) void {
+        self.used_mask |= @as(u8, 1) << @truncate(idx);
     }
 
-    fn return_buf_idx(self: *Self, idx: ringsize) void {
-        self.used_mask &= ~(@as(ringmask, 1) << idx);
+    fn return_buf_idx(self: *Self, idx: u8) void {
+        self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
     }
 
-    fn num_files_in_use(self: *Self) ringsize {
+    fn num_files_in_use(self: *Self) u8 {
         return @popCount(self.used_mask);
+    }
+
+    fn text_buf(self: *Self, idx: u8) std.posix.iovec {
+        return std.posix.iovec{
+            .base = self.text_base_buf.ptr + idx * TEXT_BUF_SIZE,
+            .len = TEXT_BUF_SIZE,
+        };
     }
 };
 
@@ -387,6 +398,7 @@ fn walkPath(
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
     ring: *Ring,
+    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
@@ -404,8 +416,8 @@ fn walkPath(
     var dirname_len = path_buf.items.len;
 
     while (true) {
+        // only look at new entries while the io_uring queue is non-full
         if (ring.get_buf_idx()) |buf_idx| {
-            // TODO: only look at new entries while the io_uring buffer is non-full
             const e = try dir_entry.data.iter.next() orelse {
                 allocator.free(dir_path.abs);
                 dir_entry.data.iter.dir.close();
@@ -440,7 +452,7 @@ fn walkPath(
                     };
                     ring.use_buf_idx(buf_idx);
 
-                    const user_data = to_user_data(.OpenFile, buf_idx);
+                    const user_data = to_user_data(.{ .OpenFile = .{ .buf_idx = buf_idx } });
                     const dir_fd = std.fs.cwd().fd;
                     const pathz = try std.posix.toPosixPath(path_buf.items);
                     const flags = std.os.linux.O{ .NOFOLLOW = true };
@@ -500,63 +512,103 @@ fn walkPath(
             }
 
             if (ring.ring.cq_ready() > 0) {
-                try waitForCqe();
+                try handleCqes(ring, text_buf, line_buf, sink, params);
             }
         }
 
-        try waitForCqe();
+        try handleCqes(ring, text_buf, line_buf, sink, params);
     }
 
     while (ring.num_files_in_use() > 0) {
-        try waitForCqe();
+        try handleCqes(ring, text_buf, line_buf, sink, params);
     }
 }
 
 const OpKind = enum(u8) {
-    OpenFile,
-    ReadFile,
+    OpenFile = 1,
+    ReadFile = 2,
 };
 
-fn to_user_data(kind: OpKind, buf_idx: ringsize) u64 {
-    return (@as(u64, kind) << 32) & @as(u64, buf_idx);
+// stored inside the `user_data` field of io_uring SQE and CQE
+const OpUserData = union(OpKind) {
+    OpenFile: OpenFile,
+    ReadFile: ReadFile,
+};
+
+const OpenFile = struct {
+    buf_idx: u8,
+};
+
+const ReadFile = struct {
+    fd: u8,
+    buf_idx: u8,
+};
+
+fn to_user_data(op: OpUserData) u64 {
+    const kind = @intFromEnum(op);
+    return switch (op) {
+        .OpenFile => |f| (@as(u64, f.buf_idx) << 8) | @as(u64, kind),
+        .ReadFile => |f| (@as(u64, f.fd) << 16) | (@as(u64, f.buf_idx) << 8) | @as(u64, kind),
+    };
 }
 
-fn from_user_data(user_data: u64) .{ OpKind, ringsize } {
-    const kind = @as(OpKind, user_data >> 32);
-    const buf_idx: ringsize = @truncate(user_data);
-    return .{ kind, buf_idx };
+fn from_user_data(user_data: u64) OpUserData {
+    const kind: OpKind = @enumFromInt(user_data & 0xFF);
+    return switch (kind) {
+        .OpenFile => .{ .OpenFile = .{
+            .buf_idx = @truncate((user_data >> 8) & 0xFF),
+        } },
+        .ReadFile => .{ .ReadFile = .{
+            .buf_idx = @truncate((user_data >> 8) & 0xFF),
+            .fd = @truncate((user_data >> 16) & 0xFF),
+        } },
+    };
 }
 
-fn waitForCqe(
+fn handleCqes(
     ring: *Ring,
+    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
 ) !void {
+    const cqe = try waitForCqe(ring);
+    switch (cqe.op) {
+        .OpenFile => |f| {
+            const fd: u8 = @truncate(cqe.res);
+            const read_op = .{ .ReadFile = .{ .buf_idx = f.buf_idx, .fd = fd } };
+            const user_data = to_user_data(read_op);
+
+            const buffer = &ring.text_bufs[f.buf_idx];
+            const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+            _ = try ring.ring.read_fixed(user_data, fd, buffer, file_offset, f.buf_idx);
+        },
+        .ReadFile => |f| {
+            try searchFile(ring, text_buf, line_buf, sink, params, f);
+        },
+    }
+}
+
+const Cqe = struct {
+    op: OpUserData,
+    // unsigned, because it has already been checked for errors
+    res: u32,
+    flags: u32,
+};
+
+fn waitForCqe(ring: *Ring) !Cqe {
+    if (ring.queue_len > 0) {
+        ring.queue_len -= 1;
+        return ring.queue[ring.queue_len];
+    }
+
     const cqe = try ring.ring.copy_cqe();
     if (cqe.res < 0) {
         // TODO: error
     }
-
-    const kind, const buf_idx = from_user_data(cqe.user_data);
-
-    switch (kind) {
-        .OpenFile => {
-            const fd = cqe.res;
-        },
-        .ReadFile => {
-            searchFile(ring, line_buf, sink, params, buf_idx);
-        },
-    }
-
-    // const cqe = try ring.copy_cqe();
-
-    // TODO: wait for opened file an initiate read, if successfully read pass into searchFile
-    // - maybe store state of file op in user_data field
-
-    // ring.ring.read_fixed(user_data: u64, fd: posix.fd_t, buffer: *posix.iovec, offset: u64, buffer_index: u16)
-
-    // try searchFile(ring, line_buf, sink, params, owned_abs_path);
+    const res: u32 = @intCast(cqe.res);
+    const op = from_user_data(cqe.user_data);
+    return .{ .op = op, .res = res, .flags = cqe.flags };
 }
 
 fn walkLink(
@@ -645,29 +697,29 @@ inline fn getDirIterOrSearch(
 
 fn searchFile(
     ring: *Ring,
+    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
-    buf_idx: u8,
-    fd: std.os.linux.fd_t,
+    read_file: ReadFile,
 ) !void {
     defer {
-        ring.allocator.free(ring.paths[buf_idx].abs);
+        ring.allocator.free(ring.paths[read_file.buf_idx].abs);
 
-        // FIXME
-        const sqe = ring.ring.close_direct(0, fd) catch unreachable;
+        const sqe = ring.ring.close_direct(0, read_file.fd) catch unreachable;
         _ = sqe;
-        // TODO: don't require a cqe by using this flag??? std.os.linux.IORING_FEAT_CQE_SKIP
+        // FIXME: don't require a cqe by using this flag??? std.os.linux.IORING_FEAT_CQE_SKIP
 
-        ring.return_buf_idx(buf_idx);
+        ring.return_buf_idx(read_file.buf_idx);
     }
 
-    const path = &ring.paths[buf_idx];
+    const path = &ring.paths[read_file.buf_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
     var chunk_buf = ChunkBuffer{
         .ring = ring,
-        .buf_idx = buf_idx,
+        .read_file = read_file,
+        .text_buf = text_buf,
         .pos = 0,
         .data_end = 0,
         .is_last_chunk = false,
@@ -940,7 +992,8 @@ fn searchFile(
 
 const ChunkBuffer = struct {
     ring: *Ring,
-    buf_idx: u8,
+    read_file: ReadFile,
+    text_buf: []u8,
     pos: usize,
     /// The end of data inside the chunk buffer, not the end of the text slice
     /// returned by refillChunkBuffer().
@@ -958,33 +1011,51 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
     // always read a complete IO_URING_BUF_SIZE and copy over to the main text_buffer,
     // at the position we are at.
     // knowing what size to read allows reading further parts of the file while searching the current buffer...
+
     std.debug.assert(new_start_pos <= chunk_buf.pos);
 
     const num_reused_bytes = chunk_buf.data_end - new_start_pos;
-    std.mem.copyForwards(u8, chunk_buf.items, chunk_buf.items[new_start_pos..chunk_buf.data_end]);
+    std.mem.copyForwards(u8, chunk_buf.text_buf, chunk_buf.text_buf[new_start_pos..chunk_buf.data_end]);
     chunk_buf.pos = chunk_buf.pos - new_start_pos;
 
-    // TODO: use two buffers and start read operation while searching the other one
     const ring = chunk_buf.ring;
-    const user_data = chunk_buf.file_idx;
-    const fd = ring.fds[chunk_buf.file_idx];
-    const buffer = ring.text_bufs[chunk_buf.text_buf_idx][num_reused_bytes..];
-    const offset = -1; // just continue reading at the last position
-    chunk_buf.ring.ring.read_fixed(user_data, fd, buffer, offset, chunk_buf.text_buf_idx);
-    // TODO: block
+    const read_file = chunk_buf.read_file;
+    const user_data = to_user_data(.{ .ReadFile = read_file });
 
-    const len = try chunk_buf.file.readAll(chunk_buf.items[num_reused_bytes..]);
+    // IMPORTANT: has to stay valid until this operations com
+    var buffer = ring.text_bufs[read_file.buf_idx];
+    buffer.len -= num_reused_bytes;
+
+    const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+    _ = try chunk_buf.ring.ring.read_fixed(user_data, read_file.fd, &buffer, file_offset, read_file.buf_idx);
+
+    // block waiting for our read to come through
+    const len = while (true) {
+        const cqe = try waitForCqe(ring);
+        switch (cqe.op) {
+            .ReadFile => |f| {
+                if (f.fd == read_file.fd) {
+                    break cqe.res;
+                }
+            },
+            else => {
+                ring.queue[ring.queue_len] = cqe;
+                ring.queue_len += 1;
+            },
+        }
+    };
+
     chunk_buf.data_end = num_reused_bytes + len;
-    chunk_buf.is_last_chunk = chunk_buf.data_end < chunk_buf.items.len;
+    chunk_buf.is_last_chunk = chunk_buf.data_end < chunk_buf.text_buf.len;
 
     var text_end = chunk_buf.data_end;
     if (!chunk_buf.is_last_chunk) {
-        const last_line_end = indexOfScalarPosRev(u8, chunk_buf.items, chunk_buf.data_end, '\n');
+        const last_line_end = indexOfScalarPosRev(u8, chunk_buf.text_buf, chunk_buf.data_end, '\n');
         if (last_line_end) |end| {
             text_end = end;
         }
     }
-    return chunk_buf.items[0..text_end];
+    return chunk_buf.text_buf[0..text_end];
 }
 
 inline fn textIndex(text: []const u8, slice_of_text: []const u8) usize {
