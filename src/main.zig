@@ -254,6 +254,7 @@ fn run(stdout: Stdout) !void {
             .opts = &opts,
             .input_paths = input_paths.items,
         };
+        group.start();
         _ = try std.Thread.spawn(.{}, startWorker, .{ &group, ctx });
     }
     group.wait();
@@ -281,7 +282,6 @@ fn run(stdout: Stdout) !void {
 // }
 
 fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
-    group.start();
     defer group.finish();
 
     var allocator = ctx.allocator;
