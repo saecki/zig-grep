@@ -163,18 +163,18 @@ fn run(stdout: Stdout) !void {
     // const regex = try compileRegex(stdout, &opts, pattern);
     // defer c.rure_free(regex);
 
-    var num_threads: u32 = 4;
-    if (std.Thread.getCpuCount()) |num_cpus| {
-        const n: u32 = @truncate(num_cpus);
-        num_threads = @max(num_threads, n);
-        if (opts.debug) {
-            try stdout.print("Got cpu count {}\n", .{num_cpus});
-        }
-    } else |e| {
-        if (opts.debug) {
-            try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
-        }
-    }
+    const num_threads: u32 = 1;
+    // if (std.Thread.getCpuCount()) |num_cpus| {
+    //     const n: u32 = @truncate(num_cpus);
+    //     num_threads = @max(num_threads, n);
+    //     if (opts.debug) {
+    //         try stdout.print("Got cpu count {}\n", .{num_cpus});
+    //     }
+    // } else |e| {
+    //     if (opts.debug) {
+    //         try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
+    //     }
+    // }
 
     // synchronize writes to stdout from here on
     var sink = Sink.init(stdout);
@@ -372,6 +372,7 @@ const Ring = struct {
         // => trailing ones
         // => first zero
         const idx = @ctz(~self.used_mask);
+        std.debug.print("getBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         if (idx < IO_URING_BUF_SIZE) {
             return @intCast(idx);
         }
@@ -379,11 +380,15 @@ const Ring = struct {
     }
 
     fn useBufIdx(self: *Self, idx: u8) void {
+        std.debug.print("before useBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         self.used_mask |= @as(u8, 1) << @truncate(idx);
+        std.debug.print("after useBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
     }
 
     fn returnBufIdx(self: *Self, idx: u8) void {
+        std.debug.print("before returnBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
+        std.debug.print("after returnBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
     }
 
     fn numFilesInUse(self: *Self) u8 {
@@ -462,6 +467,7 @@ fn walkPath(
                     const file_index = std.os.linux.IORING_FILE_INDEX_ALLOC;
                     _ = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
                     _ = try ring.ring.submit();
+                    std.debug.print("open {}\n", .{buf_idx});
                 },
                 .directory => {
                     const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
@@ -517,9 +523,9 @@ fn walkPath(
             if (ring.ring.cq_ready() > 0) {
                 try handleCqe(ring, text_buf, line_buf, sink, params);
             }
+        } else {
+            try handleCqe(ring, text_buf, line_buf, sink, params);
         }
-
-        try handleCqe(ring, text_buf, line_buf, sink, params);
     }
 
     while (ring.numFilesInUse() > 0) {
@@ -727,18 +733,26 @@ fn searchFile(
     len: usize,
 ) !void {
     _ = line_buf;
+    std.debug.print("searching {}\n", .{read_file.buf_idx});
 
     const path = &ring.paths[read_file.buf_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
 
     defer {
+        std.debug.print("closing {}\n", .{read_file.buf_idx});
         ring.allocator.free(path.abs);
 
         const user_data = toUserData(.{ .CloseFile = read_file });
-        const file_index: u32 = @intCast(read_file.fd);
-        _ = ring.ring.close_direct(user_data, file_index) catch {};
-        _ = ring.ring.submit() catch {};
+        if (ring.ring.close_direct(user_data, read_file.fd)) |sqe| {
+            sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
+            _ = ring.ring.submit() catch |err| {
+                std.debug.print("error submitting close {}\n", .{err});
+            };
+        } else |err| {
+            std.debug.print("error getting sqe to close {}\n", .{err});
+        }
+        std.debug.print("close {}\n", .{read_file.buf_idx});
     }
 
     // var chunk_buf = ChunkBuffer{
