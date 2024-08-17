@@ -318,7 +318,7 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     }
 }
 
-const IO_URING_BUF_SIZE = 1 << 2;
+const IO_URING_BUF_SIZE = 1 << 1;
 const Ring = struct {
     ring: std.os.linux.IoUring,
     /// external queue for CQEs that should be handled later
@@ -367,7 +367,7 @@ const Ring = struct {
         self.allocator.free(self.text_base_buf);
     }
 
-    fn getBufIdx(self: *Self) ?u8 {
+    fn availableBufIdx(self: *const Self) ?u8 {
         // trailing zero of bitwise inverse
         // => trailing ones
         // => first zero
@@ -378,6 +378,10 @@ const Ring = struct {
         return null;
     }
 
+    fn numFilesInUse(self: *const Self) u8 {
+        return @popCount(self.used_mask);
+    }
+
     fn useBufIdx(self: *Self, idx: u8) void {
         self.used_mask |= @as(u8, 1) << @truncate(idx);
     }
@@ -386,8 +390,8 @@ const Ring = struct {
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
     }
 
-    fn numFilesInUse(self: *Self) u8 {
-        return @popCount(self.used_mask);
+    fn cqeAvailable(self: *Self) bool {
+        return (self.queue_end - self.queue_start) > 0 or self.ring.cq_ready() > 0;
     }
 
     /// returns a slice equivalent to the iovec at `idx` inside `text_bufs`
@@ -419,7 +423,7 @@ fn walkPath(
 
     while (true) {
         // only look at new entries while the io_uring queue is non-full
-        if (ring.getBufIdx()) |buf_idx| {
+        if (ring.availableBufIdx()) |buf_idx| {
             const e = try dir_entry.data.iter.next() orelse {
                 allocator.free(dir_path.abs);
                 dir_entry.data.iter.dir.close();
@@ -514,7 +518,7 @@ fn walkPath(
                 .block_device, .character_device, .named_pipe, .unix_domain_socket, .whiteout, .door, .event_port, .unknown => {},
             }
 
-            if (ring.ring.cq_ready() > 0) {
+            if (ring.cqeAvailable()) {
                 try handleCqe(ring, text_buf, line_buf, sink, params);
             }
         } else {
@@ -610,7 +614,7 @@ fn handleCqe(
     sink: *SinkBuf,
     params: *const Params,
 ) !void {
-    const cqe = try waitForCqe(ring);
+    const cqe = try nextQueuedCqe(ring);
     switch (cqe.op) {
         .OpenFile => |f| {
             const fd: u8 = @truncate(cqe.res);
@@ -640,13 +644,17 @@ const Cqe = struct {
     flags: u32,
 };
 
-fn waitForCqe(ring: *Ring) !Cqe {
+fn nextQueuedCqe(ring: *Ring) !Cqe {
     if (ring.queue_end - ring.queue_start > 0) {
         const cqe = ring.queue[ring.queue_start % IO_URING_BUF_SIZE];
         ring.queue_start += 1;
         return cqe;
     }
 
+    return nextNewCqe(ring);
+}
+
+fn nextNewCqe(ring: *Ring) !Cqe {
     const cqe = try ring.ring.copy_cqe();
     if (cqe.res < 0) {
         return error.IoUring;
@@ -1082,7 +1090,8 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
 
     // block waiting for our read to come through
     const len: usize = while (true) {
-        const cqe = try waitForCqe(ring);
+        const cqe = try nextNewCqe(ring);
+        std.debug.print("{}\n", .{cqe});
         switch (cqe.op) {
             .ReadFile => |f| {
                 if (f.buf_idx == read_file.buf_idx) {
