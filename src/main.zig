@@ -576,11 +576,36 @@ fn fromUserData(user_data: u64) OpUserData {
         .OpenFile => .{ .OpenFile = .{
             .buf_idx = @truncate((user_data >> 8) & 0xFF),
         } },
-        .ReadFile, .CloseFile => .{ .ReadFile = .{
+        .ReadFile => .{ .ReadFile = .{
+            .buf_idx = @truncate((user_data >> 8) & 0xFF),
+            .fd = @intCast((user_data >> 16) & 0xFF),
+        } },
+        .CloseFile => .{ .CloseFile = .{
             .buf_idx = @truncate((user_data >> 8) & 0xFF),
             .fd = @intCast((user_data >> 16) & 0xFF),
         } },
     };
+}
+
+test "io_uring user_data conversion open file" {
+    const expected = OpUserData{ .OpenFile = .{ .buf_idx = 3 } };
+    const user_data = toUserData(expected);
+    const actual = fromUserData(user_data);
+    try std.testing.expectEqual(expected, actual);
+}
+
+test "io_uring user_data conversion read file" {
+    const expected = OpUserData{ .ReadFile = .{ .buf_idx = 3, .fd = 2 } };
+    const user_data = toUserData(expected);
+    const actual = fromUserData(user_data);
+    try std.testing.expectEqual(expected, actual);
+}
+
+test "io_uring user_data conversion close file" {
+    const expected = OpUserData{ .CloseFile = .{ .buf_idx = 3, .fd = 2 } };
+    const user_data = toUserData(expected);
+    const actual = fromUserData(user_data);
+    try std.testing.expectEqual(expected, actual);
 }
 
 fn handleCqe(
