@@ -657,6 +657,7 @@ fn nextQueuedCqe(ring: *Ring) !Cqe {
 fn nextNewCqe(ring: *Ring) !Cqe {
     const cqe = try ring.ring.copy_cqe();
     if (cqe.res < 0) {
+        std.debug.print("errno: {}\n", .{-cqe.res});
         return error.IoUring;
     }
     const res: u32 = @intCast(cqe.res);
@@ -1098,11 +1099,10 @@ inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]co
                     break @intCast(cqe.res);
                 }
             },
-            else => {
-                ring.queue[ring.queue_end % IO_URING_BUF_SIZE] = cqe;
-                ring.queue_end += 1;
-            },
+            else => {},
         }
+        ring.queue[ring.queue_end % IO_URING_BUF_SIZE] = cqe;
+        ring.queue_end += 1;
     };
 
     chunk_buf.data_end = num_reused_bytes + len;
