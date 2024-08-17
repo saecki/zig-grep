@@ -1,6 +1,6 @@
-// const c = @cImport({
-//     @cInclude("rure.h");
-// });
+const c = @cImport({
+    @cInclude("rure.h");
+});
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -29,7 +29,7 @@ const FILE_OPEN_FLAGS = File.OpenFlags{
 };
 
 const Params = struct {
-    // regex: *c.rure,
+    regex: *c.rure,
     opts: *const UserOptions,
     input_paths: []const []const u8,
 };
@@ -38,7 +38,7 @@ const WorkerContext = struct {
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
     sink: SinkBuf,
-    // regex: *c.rure,
+    regex: *c.rure,
     opts: *const UserOptions,
     input_paths: []const []const u8,
 };
@@ -156,25 +156,25 @@ fn run(stdout: Stdout) !void {
     var opts = UserOptions{};
     var input_paths = ArrayList([]const u8).init(allocator);
     defer input_paths.deinit();
-    _ = try args.parseArgs(stdout, &opts, &input_paths) orelse {
+    const pattern = try args.parseArgs(stdout, &opts, &input_paths) orelse {
         return;
     };
 
-    // const regex = try compileRegex(stdout, &opts, pattern);
-    // defer c.rure_free(regex);
+    const regex = try compileRegex(stdout, &opts, pattern);
+    defer c.rure_free(regex);
 
-    const num_threads: u32 = 1;
-    // if (std.Thread.getCpuCount()) |num_cpus| {
-    //     const n: u32 = @truncate(num_cpus);
-    //     num_threads = @max(num_threads, n);
-    //     if (opts.debug) {
-    //         try stdout.print("Got cpu count {}\n", .{num_cpus});
-    //     }
-    // } else |e| {
-    //     if (opts.debug) {
-    //         try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
-    //     }
-    // }
+    var num_threads: u32 = 4;
+    if (std.Thread.getCpuCount()) |num_cpus| {
+        const n: u32 = @truncate(num_cpus);
+        num_threads = @max(num_threads, n);
+        if (opts.debug) {
+            try stdout.print("Got cpu count {}\n", .{num_cpus});
+        }
+    } else |e| {
+        if (opts.debug) {
+            try stdout.print("Couldn't get cpu count defaulting to {} threads:\n{}\n", .{ num_threads, e });
+        }
+    }
 
     // synchronize writes to stdout from here on
     var sink = Sink.init(stdout);
@@ -211,7 +211,7 @@ fn run(stdout: Stdout) !void {
         try line_buf.ensureTotalCapacity(opts.before_context);
 
         const params = Params{
-            // .regex = regex,
+            .regex = regex,
             .opts = &opts,
             .input_paths = input_paths.items,
         };
@@ -250,7 +250,7 @@ fn run(stdout: Stdout) !void {
             .allocator = allocator,
             .stack = &stack,
             .sink = sink_buf,
-            // .regex = regex,
+            .regex = regex,
             .opts = &opts,
             .input_paths = input_paths.items,
         };
@@ -260,26 +260,26 @@ fn run(stdout: Stdout) !void {
     group.wait();
 }
 
-// fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
-//     var regex_flags: u32 = 0;
-//     if (opts.ignore_case) {
-//         regex_flags |= c.RURE_FLAG_CASEI;
-//     }
-//     if (opts.unicode) {
-//         regex_flags |= c.RURE_FLAG_UNICODE;
-//     }
-//
-//     const regex_error = c.rure_error_new();
-//     defer c.rure_error_free(regex_error);
-//     const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
-//     const regex = maybe_regex orelse {
-//         const error_message = c.rure_error_message(regex_error);
-//         try stdout.print("Error compiling pattern \"{s}\"\n{s}\n", .{ pattern, error_message });
-//         return error.Input;
-//     };
-//
-//     return regex;
-// }
+fn compileRegex(stdout: Stdout, opts: *const UserOptions, pattern: []const u8) !*c.rure {
+    var regex_flags: u32 = 0;
+    if (opts.ignore_case) {
+        regex_flags |= c.RURE_FLAG_CASEI;
+    }
+    if (opts.unicode) {
+        regex_flags |= c.RURE_FLAG_UNICODE;
+    }
+
+    const regex_error = c.rure_error_new();
+    defer c.rure_error_free(regex_error);
+    const maybe_regex = c.rure_compile(@ptrCast(pattern), pattern.len, regex_flags, null, regex_error);
+    const regex = maybe_regex orelse {
+        const error_message = c.rure_error_message(regex_error);
+        try stdout.print("Error compiling pattern \"{s}\"\n{s}\n", .{ pattern, error_message });
+        return error.Input;
+    };
+
+    return regex;
+}
 
 fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     defer group.finish();
@@ -289,7 +289,7 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     var sink = ctx.sink;
     defer allocator.free(sink.buf);
     const params = Params{
-        // .regex = ctx.regex,
+        .regex = ctx.regex,
         .opts = ctx.opts,
         .input_paths = ctx.input_paths,
     };
@@ -372,7 +372,6 @@ const Ring = struct {
         // => trailing ones
         // => first zero
         const idx = @ctz(~self.used_mask);
-        std.debug.print("getBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         if (idx < IO_URING_BUF_SIZE) {
             return @intCast(idx);
         }
@@ -380,15 +379,11 @@ const Ring = struct {
     }
 
     fn useBufIdx(self: *Self, idx: u8) void {
-        std.debug.print("before useBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         self.used_mask |= @as(u8, 1) << @truncate(idx);
-        std.debug.print("after useBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
     }
 
     fn returnBufIdx(self: *Self, idx: u8) void {
-        std.debug.print("before returnBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
-        std.debug.print("after returnBufIdx {b:0>4} {}\n", .{self.used_mask, idx});
     }
 
     fn numFilesInUse(self: *Self) u8 {
@@ -467,7 +462,6 @@ fn walkPath(
                     const file_index = std.os.linux.IORING_FILE_INDEX_ALLOC;
                     _ = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
                     _ = try ring.ring.submit();
-                    std.debug.print("open {}\n", .{buf_idx});
                 },
                 .directory => {
                     const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
@@ -558,7 +552,8 @@ const ReadFile = struct {
 };
 
 fn toUserData(op: OpUserData) u64 {
-    const kind = @intFromEnum(op);
+    const op_kind: OpKind = op;
+    const kind = @intFromEnum(op_kind);
     switch (op) {
         .OpenFile => |f| {
             return (@as(u64, f.buf_idx) << 8) | @as(u64, kind);
@@ -654,13 +649,11 @@ fn waitForCqe(ring: *Ring) !Cqe {
 
     const cqe = try ring.ring.copy_cqe();
     if (cqe.res < 0) {
-        std.debug.print("errno: {}\n", .{-cqe.res});
         return error.IoUring;
     }
     const res: u32 = @intCast(cqe.res);
     const op = fromUserData(cqe.user_data);
     const ret = .{ .op = op, .res = res, .flags = cqe.flags };
-    std.debug.print("{}: {}\n", .{ std.Thread.getCurrentId(), ret });
     return ret;
 }
 
@@ -757,45 +750,35 @@ fn searchFile(
     read_file: ReadFile,
     len: usize,
 ) !void {
-    _ = line_buf;
-    std.debug.print("searching {}\n", .{read_file.buf_idx});
-
     const path = &ring.paths[read_file.buf_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
 
     defer {
-        std.debug.print("closing {}\n", .{read_file.buf_idx});
         ring.allocator.free(path.abs);
 
         const user_data = toUserData(.{ .CloseFile = read_file });
-        if (ring.ring.close_direct(user_data, read_file.fd)) |sqe| {
-            sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
-            _ = ring.ring.submit() catch |err| {
-                std.debug.print("error submitting close {}\n", .{err});
-            };
-        } else |err| {
-            std.debug.print("error getting sqe to close {}\n", .{err});
-        }
-        std.debug.print("close {}\n", .{read_file.buf_idx});
+        if (ring.ring.close_direct(user_data, read_file.fd)) |_| {
+            _ = ring.ring.submit() catch {};
+        } else |_| {}
     }
 
-    // var chunk_buf = ChunkBuffer{
-    //     .ring = ring,
-    //     .read_file = read_file,
-    //     .text_buf = text_buf,
-    //     .pos = 0,
-    //     .data_end = len,
-    //     .is_last_chunk = true,
-    // };
+    var chunk_buf = ChunkBuffer{
+        .ring = ring,
+        .read_file = read_file,
+        .text_buf = text_buf,
+        .pos = 0,
+        .data_end = len,
+        .is_last_chunk = len < TEXT_BUF_SIZE,
+    };
     // TODO: start reading next chunk if not last chunk
 
     std.mem.copyForwards(u8, text_buf, ring.textBuf(read_file.buf_idx)[0..len]);
-    const text: []const u8 = text_buf[0..len];
-    const file_has_match = false;
-    // var line_num: u32 = 1;
-    // var last_matched_line_num: ?u32 = null;
-    // var last_printed_line_num: ?u32 = null;
+    var text: []const u8 = text_buf[0..len];
+    var file_has_match = false;
+    var line_num: u32 = 1;
+    var last_matched_line_num: ?u32 = null;
+    var last_printed_line_num: ?u32 = null;
 
     // detect binary files
     const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
@@ -809,245 +792,243 @@ fn searchFile(
         return;
     }
 
-    std.debug.print("{s}: {}\n", .{ path.abs, text.len });
+    while (true) {
+        var chunk_has_match = false;
+        var line_iter = std.mem.splitScalar(u8, text[chunk_buf.pos..], '\n');
+        var last_matched_line: ?[]const u8 = null;
+        var printed_remainder = true;
 
-    // while (true) {
-    //     var chunk_has_match = false;
-    //     var line_iter = std.mem.splitScalar(u8, text[chunk_buf.pos..], '\n');
-    //     var last_matched_line: ?[]const u8 = null;
-    //     var printed_remainder = true;
-    //
-    //     search: while (chunk_buf.pos < text.len) {
-    //         var match: c.rure_match = undefined;
-    //         const found = c.rure_find(params.regex, @ptrCast(text), text.len, chunk_buf.pos, &match);
-    //         if (!found) {
-    //             break;
-    //         }
-    //
-    //         // find current line (the containing this match)
-    //         var current_line: []const u8 = undefined;
-    //         var current_line_start: usize = undefined;
-    //         while (line_iter.peek()) |line| {
-    //             const line_start = textIndex(text, line);
-    //             const line_end = line_start + line.len;
-    //             if (line_start <= match.start and match.start <= line_end) {
-    //                 if (match.end == line_end + 1 and text[line_end] == '\n') {
-    //                     // don't include newlines in match text
-    //                     match.end -= 1;
-    //                 } else if (match.end > line_end) {
-    //                     // Some regex pattern may match newlines, which shouldn't be supported by default.
-    //                     // If the match spans multiple lines, check if the first line would be enough to match.
-    //                     const search_start = match.start;
-    //                     const search_end = @min(line_end + 1, text.len);
-    //                     const single_line_found = c.rure_find(params.regex, @ptrCast(text), search_end, search_start, &match);
-    //
-    //                     if (!single_line_found) {
-    //                         if (last_matched_line) |lml| {
-    //                             if (!printed_remainder) {
-    //                                 _ = try printRemainder(sink, &chunk_buf, text, lml);
-    //                                 last_printed_line_num = last_matched_line_num;
-    //                                 printed_remainder = true;
-    //                             }
-    //                         }
-    //
-    //                         chunk_buf.pos = search_end;
-    //                         continue :search;
-    //                     }
-    //
-    //                     if (match.end == line_end + 1 and text[line_end] == '\n') {
-    //                         // don't include newlines in match text
-    //                         match.end -= 1;
-    //                     }
-    //                 }
-    //
-    //                 current_line = line;
-    //                 current_line_start = line_start;
-    //                 break;
-    //             }
-    //
-    //             if (!printed_remainder) {
-    //                 // remainder of last line
-    //                 if (last_matched_line) |lml| {
-    //                     chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
-    //                     last_printed_line_num = last_matched_line_num;
-    //                     printed_remainder = true;
-    //                 }
-    //             }
-    //
-    //             // after context lines
-    //             if (last_matched_line_num) |lml_num| {
-    //                 const is_after_context_line = line_num <= lml_num + opts.after_context;
-    //                 const is_unprinted = last_printed_line_num orelse lml_num < line_num;
-    //                 if (is_after_context_line and is_unprinted) {
-    //                     try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
-    //                     try sink.print("{s}\n", .{line});
-    //                     chunk_buf.pos = @min(line_end + 1, text.len);
-    //                     last_printed_line_num = line_num;
-    //                 }
-    //             }
-    //
-    //             _ = line_iter.next();
-    //             line_num += 1;
-    //         } else {
-    //             std.debug.panic("Didn't find line for match at text[{}..{}]\n", .{ match.start, match.end });
-    //         }
-    //
-    //         // heading
-    //         if (!file_has_match and opts.heading) {
-    //             if (opts.color) {
-    //                 try sink.writeAll("\x1b[35m");
-    //             }
-    //             try printPath(sink, input_paths, path);
-    //             if (opts.color) {
-    //                 try sink.writeAll("\x1b[0m");
-    //             }
-    //             try sink.writeByte('\n');
-    //         }
-    //
-    //         const first_match_in_line = line_num != last_matched_line_num;
-    //         if (first_match_in_line) {
-    //             // non-contigous lines separator
-    //             const lpl_num = last_printed_line_num orelse 0;
-    //             const unprinted_before_lines = line_num - lpl_num - 1;
-    //             if (opts.before_context > 0 or opts.after_context > 0) {
-    //                 if (file_has_match and unprinted_before_lines > opts.before_context) {
-    //                     try sink.writeAll("--\n");
-    //                 }
-    //             }
-    //
-    //             // before context lines
-    //             const before_context_lines = @min(opts.before_context, unprinted_before_lines);
-    //             if (before_context_lines > 0) {
-    //                 // collect lines
-    //                 var cline_end = current_line_start;
-    //                 for (0..before_context_lines) |_| {
-    //                     var cline_start: u32 = 0;
-    //                     if (cline_end > 1) {
-    //                         if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
-    //                             cline_start = @intCast(pos);
-    //                         }
-    //                     }
-    //                     const cline = text[cline_start..cline_end];
-    //                     try line_buf.append(cline);
-    //
-    //                     if (cline_start == 0) {
-    //                         break;
-    //                     }
-    //                     cline_end = cline_start;
-    //                 }
-    //
-    //                 // print lines
-    //                 var i: u32 = @truncate(line_buf.items.len);
-    //                 while (i > 0) {
-    //                     i -= 1;
-    //                     const cline_num = line_num - i - 1;
-    //                     const cline = line_buf.items[i];
-    //                     try printLinePrefix(sink, opts, input_paths, path, cline_num, '-');
-    //                     try sink.writeAll(cline);
-    //                 }
-    //
-    //                 line_buf.clearRetainingCapacity();
-    //             }
-    //
-    //             try printLinePrefix(sink, opts, input_paths, path, line_num, ':');
-    //
-    //             chunk_has_match = true;
-    //             file_has_match = true;
-    //         }
-    //
-    //         // preceding text
-    //         const preceding_text_start = @max(current_line_start, chunk_buf.pos);
-    //         const preceding_text = text[preceding_text_start..match.start];
-    //         try sink.writeAll(preceding_text);
-    //
-    //         // the match
-    //         const match_text = text[match.start..match.end];
-    //         if (opts.color) {
-    //             try sink.writeAll("\x1b[0m\x1b[1m\x1b[31m");
-    //         }
-    //         try sink.writeAll(match_text);
-    //         if (opts.color) {
-    //             try sink.writeAll("\x1b[0m");
-    //         }
-    //
-    //         chunk_buf.pos = match.end;
-    //         last_matched_line = current_line;
-    //         last_matched_line_num = line_num;
-    //         printed_remainder = false;
-    //     }
-    //
-    //     if (last_matched_line) |lml| {
-    //         // remainder of last line
-    //         if (!printed_remainder) {
-    //             chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
-    //             last_printed_line_num = line_num;
-    //             _ = line_iter.next();
-    //             line_num += 1;
-    //         }
-    //
-    //         // after context lines
-    //         const lml_num = last_matched_line_num.?;
-    //         const unprinted_lines = (lml_num + opts.after_context + 1) -| line_num;
-    //         const after_context_lines = @min(unprinted_lines, opts.after_context);
-    //         for (0..after_context_lines) |_| {
-    //             const cline = line_iter.next() orelse break;
-    //             // ignore empty last line
-    //             if (line_iter.peek() == null and cline.len == 0) {
-    //                 break;
-    //             }
-    //
-    //             const cline_start = textIndex(text, cline);
-    //             const cline_end = cline_start + cline.len;
-    //             try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
-    //             try sink.print("{s}\n", .{cline});
-    //
-    //             chunk_buf.pos = @min(cline_end + 1, text.len);
-    //             last_printed_line_num = line_num;
-    //             line_num += 1;
-    //         }
-    //     }
-    //
-    //     if (chunk_buf.is_last_chunk) {
-    //         break;
-    //     }
-    //
-    //     // count remaining lines
-    //     while (line_iter.next()) |l| {
-    //         // ignore empty last line
-    //         if (line_iter.peek() == null and l.len == 0) {
-    //             break;
-    //         }
-    //
-    //         const line_start = textIndex(text, l);
-    //         const line_end = line_start + l.len;
-    //         chunk_buf.pos = @min(line_end + 1, text.len);
-    //         line_num += 1;
-    //     }
-    //
-    //     // refill the buffer
-    //     var new_start_pos = if (chunk_has_match) chunk_buf.pos else text.len;
-    //     if (opts.before_context > 0) {
-    //         // include lines that may have to be printed as `before_context`
-    //         var cline_end = chunk_buf.pos;
-    //         for (0..opts.before_context) |_| {
-    //             var cline_start: u32 = 0;
-    //             if (cline_end > 1) {
-    //                 if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
-    //                     cline_start = @intCast(pos);
-    //                 }
-    //             }
-    //
-    //             new_start_pos = cline_start;
-    //
-    //             if (cline_start == 0) {
-    //                 break;
-    //             }
-    //             cline_end = cline_start;
-    //         }
-    //     }
-    //
-    //     text = try refillChunkBuffer(&chunk_buf, new_start_pos);
-    // }
+        search: while (chunk_buf.pos < text.len) {
+            var match: c.rure_match = undefined;
+            const found = c.rure_find(params.regex, @ptrCast(text), text.len, chunk_buf.pos, &match);
+            if (!found) {
+                break;
+            }
+
+            // find current line (the containing this match)
+            var current_line: []const u8 = undefined;
+            var current_line_start: usize = undefined;
+            while (line_iter.peek()) |line| {
+                const line_start = textIndex(text, line);
+                const line_end = line_start + line.len;
+                if (line_start <= match.start and match.start <= line_end) {
+                    if (match.end == line_end + 1 and text[line_end] == '\n') {
+                        // don't include newlines in match text
+                        match.end -= 1;
+                    } else if (match.end > line_end) {
+                        // Some regex pattern may match newlines, which shouldn't be supported by default.
+                        // If the match spans multiple lines, check if the first line would be enough to match.
+                        const search_start = match.start;
+                        const search_end = @min(line_end + 1, text.len);
+                        const single_line_found = c.rure_find(params.regex, @ptrCast(text), search_end, search_start, &match);
+
+                        if (!single_line_found) {
+                            if (last_matched_line) |lml| {
+                                if (!printed_remainder) {
+                                    _ = try printRemainder(sink, &chunk_buf, text, lml);
+                                    last_printed_line_num = last_matched_line_num;
+                                    printed_remainder = true;
+                                }
+                            }
+
+                            chunk_buf.pos = search_end;
+                            continue :search;
+                        }
+
+                        if (match.end == line_end + 1 and text[line_end] == '\n') {
+                            // don't include newlines in match text
+                            match.end -= 1;
+                        }
+                    }
+
+                    current_line = line;
+                    current_line_start = line_start;
+                    break;
+                }
+
+                if (!printed_remainder) {
+                    // remainder of last line
+                    if (last_matched_line) |lml| {
+                        chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
+                        last_printed_line_num = last_matched_line_num;
+                        printed_remainder = true;
+                    }
+                }
+
+                // after context lines
+                if (last_matched_line_num) |lml_num| {
+                    const is_after_context_line = line_num <= lml_num + opts.after_context;
+                    const is_unprinted = last_printed_line_num orelse lml_num < line_num;
+                    if (is_after_context_line and is_unprinted) {
+                        try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
+                        try sink.print("{s}\n", .{line});
+                        chunk_buf.pos = @min(line_end + 1, text.len);
+                        last_printed_line_num = line_num;
+                    }
+                }
+
+                _ = line_iter.next();
+                line_num += 1;
+            } else {
+                std.debug.panic("Didn't find line for match at text[{}..{}]\n", .{ match.start, match.end });
+            }
+
+            // heading
+            if (!file_has_match and opts.heading) {
+                if (opts.color) {
+                    try sink.writeAll("\x1b[35m");
+                }
+                try printPath(sink, input_paths, path);
+                if (opts.color) {
+                    try sink.writeAll("\x1b[0m");
+                }
+                try sink.writeByte('\n');
+            }
+
+            const first_match_in_line = line_num != last_matched_line_num;
+            if (first_match_in_line) {
+                // non-contigous lines separator
+                const lpl_num = last_printed_line_num orelse 0;
+                const unprinted_before_lines = line_num - lpl_num - 1;
+                if (opts.before_context > 0 or opts.after_context > 0) {
+                    if (file_has_match and unprinted_before_lines > opts.before_context) {
+                        try sink.writeAll("--\n");
+                    }
+                }
+
+                // before context lines
+                const before_context_lines = @min(opts.before_context, unprinted_before_lines);
+                if (before_context_lines > 0) {
+                    // collect lines
+                    var cline_end = current_line_start;
+                    for (0..before_context_lines) |_| {
+                        var cline_start: u32 = 0;
+                        if (cline_end > 1) {
+                            if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
+                                cline_start = @intCast(pos);
+                            }
+                        }
+                        const cline = text[cline_start..cline_end];
+                        try line_buf.append(cline);
+
+                        if (cline_start == 0) {
+                            break;
+                        }
+                        cline_end = cline_start;
+                    }
+
+                    // print lines
+                    var i: u32 = @truncate(line_buf.items.len);
+                    while (i > 0) {
+                        i -= 1;
+                        const cline_num = line_num - i - 1;
+                        const cline = line_buf.items[i];
+                        try printLinePrefix(sink, opts, input_paths, path, cline_num, '-');
+                        try sink.writeAll(cline);
+                    }
+
+                    line_buf.clearRetainingCapacity();
+                }
+
+                try printLinePrefix(sink, opts, input_paths, path, line_num, ':');
+
+                chunk_has_match = true;
+                file_has_match = true;
+            }
+
+            // preceding text
+            const preceding_text_start = @max(current_line_start, chunk_buf.pos);
+            const preceding_text = text[preceding_text_start..match.start];
+            try sink.writeAll(preceding_text);
+
+            // the match
+            const match_text = text[match.start..match.end];
+            if (opts.color) {
+                try sink.writeAll("\x1b[0m\x1b[1m\x1b[31m");
+            }
+            try sink.writeAll(match_text);
+            if (opts.color) {
+                try sink.writeAll("\x1b[0m");
+            }
+
+            chunk_buf.pos = match.end;
+            last_matched_line = current_line;
+            last_matched_line_num = line_num;
+            printed_remainder = false;
+        }
+
+        if (last_matched_line) |lml| {
+            // remainder of last line
+            if (!printed_remainder) {
+                chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
+                last_printed_line_num = line_num;
+                _ = line_iter.next();
+                line_num += 1;
+            }
+
+            // after context lines
+            const lml_num = last_matched_line_num.?;
+            const unprinted_lines = (lml_num + opts.after_context + 1) -| line_num;
+            const after_context_lines = @min(unprinted_lines, opts.after_context);
+            for (0..after_context_lines) |_| {
+                const cline = line_iter.next() orelse break;
+                // ignore empty last line
+                if (line_iter.peek() == null and cline.len == 0) {
+                    break;
+                }
+
+                const cline_start = textIndex(text, cline);
+                const cline_end = cline_start + cline.len;
+                try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
+                try sink.print("{s}\n", .{cline});
+
+                chunk_buf.pos = @min(cline_end + 1, text.len);
+                last_printed_line_num = line_num;
+                line_num += 1;
+            }
+        }
+
+        if (chunk_buf.is_last_chunk) {
+            break;
+        }
+
+        // count remaining lines
+        while (line_iter.next()) |l| {
+            // ignore empty last line
+            if (line_iter.peek() == null and l.len == 0) {
+                break;
+            }
+
+            const line_start = textIndex(text, l);
+            const line_end = line_start + l.len;
+            chunk_buf.pos = @min(line_end + 1, text.len);
+            line_num += 1;
+        }
+
+        // refill the buffer
+        var new_start_pos = if (chunk_has_match) chunk_buf.pos else text.len;
+        if (opts.before_context > 0) {
+            // include lines that may have to be printed as `before_context`
+            var cline_end = chunk_buf.pos;
+            for (0..opts.before_context) |_| {
+                var cline_start: u32 = 0;
+                if (cline_end > 1) {
+                    if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
+                        cline_start = @intCast(pos);
+                    }
+                }
+
+                new_start_pos = cline_start;
+
+                if (cline_start == 0) {
+                    break;
+                }
+                cline_end = cline_start;
+            }
+        }
+
+        text = try refillChunkBuffer(&chunk_buf, new_start_pos);
+    }
 
     if (file_has_match) {
         if (opts.heading) {
@@ -1060,7 +1041,7 @@ fn searchFile(
 
 const ChunkBuffer = struct {
     ring: *Ring,
-    buf_idx: u8,
+    read_file: ReadFile,
     text_buf: []u8,
     pos: usize,
     /// The end of data inside the chunk buffer, not the end of the text slice

@@ -24,22 +24,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // // Link the rust regex library (rure)
-    // // link all the other stuff needed
-    // exe.linkLibC();
-    // exe.linkSystemLibrary("util");
-    // exe.linkSystemLibrary("dl");
-    // exe.linkSystemLibrary("gcc_s");
-    // exe.linkSystemLibrary("m");
-    // exe.linkSystemLibrary("rt");
-    // exe.linkSystemLibrary("util");
-    // // link rure itself
-    // exe.addIncludePath(b.path("rure/regex-capi/include"));
-    // exe.addLibraryPath(b.path("rure/target/release"));
-    // exe.linkSystemLibrary2("rure", .{
-    //     .needed = true,
-    //     .preferred_link_mode = .static,
-    // });
+    // Link the rust regex library (rure)
+    // link all the other stuff needed
+    exe.linkLibC();
+    exe.linkSystemLibrary("util");
+    exe.linkSystemLibrary("dl");
+    exe.linkSystemLibrary("gcc_s");
+    exe.linkSystemLibrary("m");
+    exe.linkSystemLibrary("rt");
+    exe.linkSystemLibrary("util");
+    // link rure itself
+    exe.addIncludePath(b.path("rure/regex-capi/include"));
+    exe.addLibraryPath(b.path("rure/target/release"));
+    exe.linkSystemLibrary2("rure", .{
+        .needed = true,
+        .preferred_link_mode = .static,
+    });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
