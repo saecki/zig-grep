@@ -18,6 +18,7 @@ const Sink = atomic.Sink;
 const SinkBuf = atomic.SinkBuf;
 
 const TEXT_BUF_SIZE = 1 << 16;
+const TEXT_BUF_READ_SIZE = TEXT_BUF_SIZE / 2;
 const SINK_BUF_SIZE = 1 << 12;
 
 const DIR_OPEN_OPTIONS = Dir.OpenDirOptions{
@@ -185,8 +186,9 @@ fn run(stdout: Stdout) !void {
     if (input_paths.items.len == 0) {
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const abs_path = try std.fs.realpath(".", &path_buf);
+        const owned_abs_path = try allocSlice(u8, allocator, abs_path);
         const path = DisplayPath{
-            .abs = abs_path,
+            .abs = owned_abs_path,
             .display_prefix = null,
             .sub_path_offset = @truncate(abs_path.len),
         };
@@ -204,8 +206,6 @@ fn run(stdout: Stdout) !void {
         defer allocator.free(buf);
         var sink_buf = SinkBuf.init(&sink, buf);
 
-        const text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
-        defer allocator.free(text_buf);
         var line_buf = ArrayList([]const u8).init(allocator);
         defer line_buf.deinit();
         try line_buf.ensureTotalCapacity(opts.before_context);
@@ -297,8 +297,6 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     // reuse buffers
     var path_buf = ArrayList(u8).init(ctx.allocator);
     defer path_buf.deinit();
-    const text_buf = try allocator.alloc(u8, TEXT_BUF_SIZE);
-    defer allocator.free(text_buf);
     var line_buf = ArrayList([]const u8).init(allocator);
     defer line_buf.deinit();
     try line_buf.ensureTotalCapacity(params.opts.before_context);
@@ -311,25 +309,28 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, &ring, text_buf, &line_buf, &sink, &params, &path_buf, entry);
+                try walkPath(allocator, stack, &ring, &line_buf, &sink, &params, &path_buf, entry);
             },
             .Stop => break,
         }
     }
 }
 
-const IO_URING_BUF_SIZE = 1 << 1;
+const IO_URING_NUM_SLOTS = 1 << 2;
+const IO_URING_TEXT_BUF_SLOTS = IO_URING_NUM_SLOTS + 1;
+const IO_URING_SWAP_BUF_IDX = IO_URING_NUM_SLOTS;
 const Ring = struct {
     ring: std.os.linux.IoUring,
     /// external queue for CQEs that should be handled later
-    queue: [IO_URING_BUF_SIZE]Cqe = undefined,
+    queue: [2 * IO_URING_NUM_SLOTS]Cqe = undefined,
     queue_start: usize = 0,
     queue_end: usize = 0,
 
     /// memory area that the `std.posix.iovec`s point to
     text_base_buf: []u8,
-    text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec,
-    paths: [IO_URING_BUF_SIZE]DisplayPath = undefined,
+    /// The last extra buffer is used as a swap buffer when reading large files, to avoid copying.
+    text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec,
+    paths: [IO_URING_NUM_SLOTS]DisplayPath = undefined,
     used_mask: u8 = 0,
 
     allocator: Allocator,
@@ -338,12 +339,12 @@ const Ring = struct {
 
     fn init(allocator: Allocator) !Self {
         const flags = 0; // std.os.linux.IORING_FEAT_RW_CUR_POS | std.os.linux.IORING_FEAT_RSRC_TAGS;
-        const io_uring = try std.os.linux.IoUring.init(IO_URING_BUF_SIZE, flags);
-        const text_base_buf = try allocator.alloc(u8, IO_URING_BUF_SIZE * TEXT_BUF_SIZE);
-        var text_bufs: [IO_URING_BUF_SIZE]std.posix.iovec = undefined;
-        for (0..IO_URING_BUF_SIZE) |i| {
-            text_bufs[i].base = text_base_buf.ptr + i * TEXT_BUF_SIZE;
-            text_bufs[i].len = TEXT_BUF_SIZE;
+        const io_uring = try std.os.linux.IoUring.init(2 * IO_URING_NUM_SLOTS, flags);
+        const text_base_buf = try allocator.alloc(u8, IO_URING_TEXT_BUF_SLOTS * TEXT_BUF_SIZE);
+        var text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec = undefined;
+        for (0..IO_URING_TEXT_BUF_SLOTS) |i| {
+            text_bufs[i].base = text_base_buf.ptr + i * TEXT_BUF_SIZE + TEXT_BUF_READ_SIZE;
+            text_bufs[i].len = TEXT_BUF_READ_SIZE;
         }
         const self = Self{
             .ring = io_uring,
@@ -357,7 +358,7 @@ const Ring = struct {
 
     /// The `Ring` can't be moved once this has been called.
     fn setup(self: *Self) !void {
-        const fds = [1]std.os.linux.fd_t{-1} ** IO_URING_BUF_SIZE;
+        const fds = [1]std.os.linux.fd_t{-1} ** IO_URING_NUM_SLOTS;
         try self.ring.register_files(&fds);
         try self.ring.register_buffers(&self.text_bufs);
     }
@@ -367,12 +368,12 @@ const Ring = struct {
         self.allocator.free(self.text_base_buf);
     }
 
-    fn availableBufIdx(self: *const Self) ?u8 {
+    fn availableFdIdx(self: *const Self) ?u8 {
         // trailing zero of bitwise inverse
         // => trailing ones
         // => first zero
         const idx = @ctz(~self.used_mask);
-        if (idx < IO_URING_BUF_SIZE) {
+        if (idx < IO_URING_NUM_SLOTS) {
             return @intCast(idx);
         }
         return null;
@@ -382,11 +383,11 @@ const Ring = struct {
         return @popCount(self.used_mask);
     }
 
-    fn useBufIdx(self: *Self, idx: u8) void {
+    fn useFdIdx(self: *Self, idx: u8) void {
         self.used_mask |= @as(u8, 1) << @truncate(idx);
     }
 
-    fn returnBufIdx(self: *Self, idx: u8) void {
+    fn returnFdIdx(self: *Self, idx: u8) void {
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
     }
 
@@ -394,9 +395,18 @@ const Ring = struct {
         return (self.queue_end - self.queue_start) > 0 or self.ring.cq_ready() > 0;
     }
 
-    /// returns a slice equivalent to the iovec at `idx` inside `text_bufs`
-    fn textBuf(self: *Self, idx: u8) []u8 {
-        return self.text_base_buf[@as(u64, idx) * TEXT_BUF_SIZE ..][0..TEXT_BUF_SIZE];
+    /// Only return the last half of a text buffer
+    fn textReadBuf(self: *Self, idx: u8) []u8 {
+        const start = @as(u64, idx) * TEXT_BUF_SIZE + TEXT_BUF_READ_SIZE;
+        const end = @as(u64, idx + 1) * TEXT_BUF_SIZE;
+        return self.text_base_buf[start..end];
+    }
+
+    /// Return the complete text buffer
+    fn completeTextBuf(self: *Self, idx: u8) []u8 {
+        const start = @as(u64, idx) * TEXT_BUF_SIZE;
+        const end = @as(u64, idx + 1) * TEXT_BUF_SIZE;
+        return self.text_base_buf[start..end];
     }
 };
 
@@ -404,7 +414,6 @@ fn walkPath(
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
     ring: *Ring,
-    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
@@ -423,7 +432,7 @@ fn walkPath(
 
     while (true) {
         // only look at new entries while the io_uring queue is non-full
-        if (ring.availableBufIdx()) |buf_idx| {
+        if (ring.availableFdIdx()) |fd_idx| {
             const e = try dir_entry.data.iter.next() orelse {
                 allocator.free(dir_path.abs);
                 dir_entry.data.iter.dir.close();
@@ -451,20 +460,34 @@ fn walkPath(
             switch (e.kind) {
                 .file => {
                     const owned_abs_path = try allocSlice(u8, ring.allocator, path_buf.items);
-                    ring.paths[buf_idx] = DisplayPath{
+                    ring.paths[fd_idx] = DisplayPath{
                         .abs = owned_abs_path,
                         .display_prefix = dir_path.display_prefix,
                         .sub_path_offset = dir_path.sub_path_offset,
                     };
-                    ring.useBufIdx(buf_idx);
+                    ring.useFdIdx(fd_idx);
 
-                    const user_data = toUserData(.{ .OpenFile = .{ .buf_idx = buf_idx } });
-                    const dir_fd = std.fs.cwd().fd;
-                    const pathz = try std.posix.toPosixPath(path_buf.items);
-                    const flags = std.os.linux.O{ .NOFOLLOW = true };
-                    const mode: std.os.linux.mode_t = 1 << 2; // READONLY
-                    const file_index = std.os.linux.IORING_FILE_INDEX_ALLOC;
-                    _ = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
+                    {
+                        const user_data = toUserData(.OpenFile);
+                        const dir_fd = std.fs.cwd().fd;
+                        const pathz = try std.posix.toPosixPath(path_buf.items);
+                        const flags = std.os.linux.O{ .NOFOLLOW = true };
+                        const mode: std.os.linux.mode_t = 1 << 2; // READONLY
+                        const file_index = fd_idx;
+                        const sqe = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
+                        sqe.flags |= std.os.linux.IOSQE_IO_LINK;
+                    }
+
+                    // the read operation is chained through the `IOSQE_IO_LINK` flag.
+                    {
+                        const fd: u8 = fd_idx;
+                        const user_data = toUserData(.{ .ReadFile = .{ .fd_idx = fd_idx } });
+                        const buffer = &ring.text_bufs[fd_idx];
+                        const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+                        const sqe = try ring.ring.read_fixed(user_data, fd, buffer, file_offset, fd_idx);
+                        sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
+                    }
+
                     _ = try ring.ring.submit();
                 },
                 .directory => {
@@ -519,15 +542,15 @@ fn walkPath(
             }
 
             if (ring.cqeAvailable()) {
-                try handleCqe(ring, text_buf, line_buf, sink, params);
+                try handleCqe(ring, line_buf, sink, params);
             }
         } else {
-            try handleCqe(ring, text_buf, line_buf, sink, params);
+            try handleCqe(ring, line_buf, sink, params);
         }
     }
 
     while (ring.numFilesInUse() > 0) {
-        try handleCqe(ring, text_buf, line_buf, sink, params);
+        try handleCqe(ring, line_buf, sink, params);
     }
 }
 
@@ -539,32 +562,24 @@ const OpKind = enum(u8) {
 
 // stored inside the `user_data` field of io_uring SQE and CQE
 const OpUserData = union(OpKind) {
-    OpenFile: OpenFile,
-    ReadFile: ReadFile,
-    CloseFile: ReadFile,
+    OpenFile,
+    ReadFile: DirectFile,
+    CloseFile: DirectFile,
 };
 
-const OpenFile = struct {
-    buf_idx: u8,
-};
-
-const ReadFile = struct {
-    /// this is not a normal 32-bit file descriptor, but an index into the direct file descriptor
-    /// array managed by io_uring.
-    fd: u8,
-    buf_idx: u8,
+const DirectFile = struct {
+    fd_idx: u8,
 };
 
 fn toUserData(op: OpUserData) u64 {
     const op_kind: OpKind = op;
     const kind = @intFromEnum(op_kind);
     switch (op) {
-        .OpenFile => |f| {
-            return (@as(u64, f.buf_idx) << 8) | @as(u64, kind);
+        .OpenFile => {
+            return @as(u64, kind);
         },
         .ReadFile, .CloseFile => |f| {
-            const fd: u64 = @intCast(f.fd);
-            return (fd << 16) | (@as(u64, f.buf_idx) << 8) | @as(u64, kind);
+            return (@as(u64, f.fd_idx) << 8) | @as(u64, kind);
         },
     }
 }
@@ -572,36 +587,32 @@ fn toUserData(op: OpUserData) u64 {
 fn fromUserData(user_data: u64) OpUserData {
     const kind: OpKind = @enumFromInt(user_data & 0xFF);
     return switch (kind) {
-        .OpenFile => .{ .OpenFile = .{
-            .buf_idx = @truncate((user_data >> 8) & 0xFF),
-        } },
+        .OpenFile => .OpenFile,
         .ReadFile => .{ .ReadFile = .{
-            .buf_idx = @truncate((user_data >> 8) & 0xFF),
-            .fd = @intCast((user_data >> 16) & 0xFF),
+            .fd_idx = @truncate((user_data >> 8) & 0xFF),
         } },
         .CloseFile => .{ .CloseFile = .{
-            .buf_idx = @truncate((user_data >> 8) & 0xFF),
-            .fd = @intCast((user_data >> 16) & 0xFF),
+            .fd_idx = @truncate((user_data >> 8) & 0xFF),
         } },
     };
 }
 
 test "io_uring user_data conversion open file" {
-    const expected = OpUserData{ .OpenFile = .{ .buf_idx = 3 } };
+    const expected = OpUserData{ .OpenFile = .{ .fd_idx = 3 } };
     const user_data = toUserData(expected);
     const actual = fromUserData(user_data);
     try std.testing.expectEqual(expected, actual);
 }
 
 test "io_uring user_data conversion read file" {
-    const expected = OpUserData{ .ReadFile = .{ .buf_idx = 3, .fd = 2 } };
+    const expected = OpUserData{ .ReadFile = .{ .fd_idx = 3 } };
     const user_data = toUserData(expected);
     const actual = fromUserData(user_data);
     try std.testing.expectEqual(expected, actual);
 }
 
 test "io_uring user_data conversion close file" {
-    const expected = OpUserData{ .CloseFile = .{ .buf_idx = 3, .fd = 2 } };
+    const expected = OpUserData{ .CloseFile = .{ .fd_idx = 3 } };
     const user_data = toUserData(expected);
     const actual = fromUserData(user_data);
     try std.testing.expectEqual(expected, actual);
@@ -609,30 +620,19 @@ test "io_uring user_data conversion close file" {
 
 fn handleCqe(
     ring: *Ring,
-    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
 ) !void {
     const cqe = try nextQueuedCqe(ring);
     switch (cqe.op) {
-        .OpenFile => |f| {
-            const fd: u8 = @truncate(cqe.res);
-            const read_op = .{ .ReadFile = .{ .buf_idx = f.buf_idx, .fd = fd } };
-            const user_data = toUserData(read_op);
-
-            const buffer = &ring.text_bufs[f.buf_idx];
-            const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
-            const sqe = try ring.ring.read_fixed(user_data, fd, buffer, file_offset, f.buf_idx);
-            sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
-            _ = try ring.ring.submit();
-        },
+        .OpenFile => {}, // read operation is chained, no need to do anything
         .ReadFile => |f| {
             const len: usize = @intCast(cqe.res);
-            try searchFile(ring, text_buf, line_buf, sink, params, f, len);
+            try searchFile(ring, line_buf, sink, params, f, len);
         },
         .CloseFile => |f| {
-            ring.returnBufIdx(f.buf_idx);
+            ring.returnFdIdx(f.fd_idx);
         },
     }
 }
@@ -646,7 +646,7 @@ const Cqe = struct {
 
 fn nextQueuedCqe(ring: *Ring) !Cqe {
     if (ring.queue_end - ring.queue_start > 0) {
-        const cqe = ring.queue[ring.queue_start % IO_URING_BUF_SIZE];
+        const cqe = ring.queue[ring.queue_start % IO_URING_NUM_SLOTS];
         ring.queue_start += 1;
         return cqe;
     }
@@ -717,7 +717,7 @@ inline fn getDirIterOrSearch(
     switch (stat.kind) {
         .file => {
             // TODO
-            // try searchFile(text_buf, line_buf, sink, params, file, &path);
+            // try searchFile(line_buf, sink, params, file, &path);
         },
         .directory => {
             const dir = try std.fs.openDirAbsolute(path.abs, DIR_OPEN_OPTIONS);
@@ -752,38 +752,40 @@ inline fn getDirIterOrSearch(
 
 fn searchFile(
     ring: *Ring,
-    text_buf: []u8,
     line_buf: *ArrayList([]const u8),
     sink: *SinkBuf,
     params: *const Params,
-    read_file: ReadFile,
+    direct_file: DirectFile,
     len: usize,
 ) !void {
-    const path = &ring.paths[read_file.buf_idx];
+    const path = &ring.paths[direct_file.fd_idx];
     const opts = params.opts;
     const input_paths = params.input_paths;
 
     defer {
         ring.allocator.free(path.abs);
 
-        const user_data = toUserData(.{ .CloseFile = read_file });
-        if (ring.ring.close_direct(user_data, read_file.fd)) |_| {
+        const user_data = toUserData(.{ .CloseFile = direct_file });
+        if (ring.ring.close_direct(user_data, direct_file.fd_idx)) |_| {
             _ = ring.ring.submit() catch {};
         } else |_| {}
     }
 
-    var chunk_buf = ChunkBuffer{
-        .ring = ring,
-        .read_file = read_file,
-        .text_buf = text_buf,
-        .pos = 0,
-        .data_end = len,
-        .is_last_chunk = len < TEXT_BUF_SIZE,
-    };
-    // TODO: start reading next chunk if not last chunk
+    var text: []const u8 = ring.textReadBuf(direct_file.fd_idx)[0..len];
+    var is_last_chunk = len < TEXT_BUF_READ_SIZE;
+    var searching_swap_buf = false;
 
-    std.mem.copyForwards(u8, text_buf, ring.textBuf(read_file.buf_idx)[0..len]);
-    var text: []const u8 = text_buf[0..len];
+    // start reading next chunk into the swap buffer
+    if (!is_last_chunk) {
+        const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+        const user_data = toUserData(.{ .ReadFile = direct_file });
+        const buffer = &ring.text_bufs[IO_URING_SWAP_BUF_IDX];
+        const buffer_idx = IO_URING_SWAP_BUF_IDX;
+        const sqe = try ring.ring.read_fixed(user_data, direct_file.fd_idx, buffer, file_offset, buffer_idx);
+        sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
+        _ = try ring.ring.submit();
+    }
+
     var file_has_match = false;
     var line_num: u32 = 1;
     var last_matched_line_num: ?u32 = null;
@@ -802,14 +804,15 @@ fn searchFile(
     }
 
     while (true) {
+        var pos: usize = 0;
         var chunk_has_match = false;
-        var line_iter = std.mem.splitScalar(u8, text[chunk_buf.pos..], '\n');
+        var line_iter = std.mem.splitScalar(u8, text[pos..], '\n');
         var last_matched_line: ?[]const u8 = null;
         var printed_remainder = true;
 
-        search: while (chunk_buf.pos < text.len) {
+        search: while (pos < text.len) {
             var match: c.rure_match = undefined;
-            const found = c.rure_find(params.regex, @ptrCast(text), text.len, chunk_buf.pos, &match);
+            const found = c.rure_find(params.regex, @ptrCast(text), text.len, pos, &match);
             if (!found) {
                 break;
             }
@@ -834,13 +837,13 @@ fn searchFile(
                         if (!single_line_found) {
                             if (last_matched_line) |lml| {
                                 if (!printed_remainder) {
-                                    _ = try printRemainder(sink, &chunk_buf, text, lml);
+                                    _ = try printRemainder(sink, pos, text, lml);
                                     last_printed_line_num = last_matched_line_num;
                                     printed_remainder = true;
                                 }
                             }
 
-                            chunk_buf.pos = search_end;
+                            pos = search_end;
                             continue :search;
                         }
 
@@ -858,7 +861,7 @@ fn searchFile(
                 if (!printed_remainder) {
                     // remainder of last line
                     if (last_matched_line) |lml| {
-                        chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
+                        pos = try printRemainder(sink, pos, text, lml);
                         last_printed_line_num = last_matched_line_num;
                         printed_remainder = true;
                     }
@@ -871,7 +874,7 @@ fn searchFile(
                     if (is_after_context_line and is_unprinted) {
                         try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
                         try sink.print("{s}\n", .{line});
-                        chunk_buf.pos = @min(line_end + 1, text.len);
+                        pos = @min(line_end + 1, text.len);
                         last_printed_line_num = line_num;
                     }
                 }
@@ -913,8 +916,8 @@ fn searchFile(
                     for (0..before_context_lines) |_| {
                         var cline_start: u32 = 0;
                         if (cline_end > 1) {
-                            if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
-                                cline_start = @intCast(pos);
+                            if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |i| {
+                                cline_start = @intCast(i);
                             }
                         }
                         const cline = text[cline_start..cline_end];
@@ -946,7 +949,7 @@ fn searchFile(
             }
 
             // preceding text
-            const preceding_text_start = @max(current_line_start, chunk_buf.pos);
+            const preceding_text_start = @max(current_line_start, pos);
             const preceding_text = text[preceding_text_start..match.start];
             try sink.writeAll(preceding_text);
 
@@ -960,7 +963,7 @@ fn searchFile(
                 try sink.writeAll("\x1b[0m");
             }
 
-            chunk_buf.pos = match.end;
+            pos = match.end;
             last_matched_line = current_line;
             last_matched_line_num = line_num;
             printed_remainder = false;
@@ -969,7 +972,7 @@ fn searchFile(
         if (last_matched_line) |lml| {
             // remainder of last line
             if (!printed_remainder) {
-                chunk_buf.pos = try printRemainder(sink, &chunk_buf, text, lml);
+                pos = try printRemainder(sink, pos, text, lml);
                 last_printed_line_num = line_num;
                 _ = line_iter.next();
                 line_num += 1;
@@ -991,13 +994,13 @@ fn searchFile(
                 try printLinePrefix(sink, opts, input_paths, path, line_num, '-');
                 try sink.print("{s}\n", .{cline});
 
-                chunk_buf.pos = @min(cline_end + 1, text.len);
+                pos = @min(cline_end + 1, text.len);
                 last_printed_line_num = line_num;
                 line_num += 1;
             }
         }
 
-        if (chunk_buf.is_last_chunk) {
+        if (is_last_chunk) {
             break;
         }
 
@@ -1010,20 +1013,19 @@ fn searchFile(
 
             const line_start = textIndex(text, l);
             const line_end = line_start + l.len;
-            chunk_buf.pos = @min(line_end + 1, text.len);
+            pos = @min(line_end + 1, text.len);
             line_num += 1;
         }
 
-        // refill the buffer
-        var new_start_pos = if (chunk_has_match) chunk_buf.pos else text.len;
+        // include lines that may have to be printed as `before_context`
+        var new_start_pos = if (chunk_has_match) pos else text.len;
         if (opts.before_context > 0) {
-            // include lines that may have to be printed as `before_context`
-            var cline_end = chunk_buf.pos;
+            var cline_end = pos;
             for (0..opts.before_context) |_| {
                 var cline_start: u32 = 0;
                 if (cline_end > 1) {
-                    if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |pos| {
-                        cline_start = @intCast(pos);
+                    if (indexOfScalarPosRev(u8, text, cline_end - 1, '\n')) |idx| {
+                        cline_start = @intCast(idx);
                     }
                 }
 
@@ -1036,7 +1038,7 @@ fn searchFile(
             }
         }
 
-        text = try refillChunkBuffer(&chunk_buf, new_start_pos);
+        text = try swapBuffers(ring, direct_file, text, new_start_pos, &is_last_chunk, &searching_swap_buf);
     }
 
     if (file_has_match) {
@@ -1048,74 +1050,50 @@ fn searchFile(
     try sink.end();
 }
 
-const ChunkBuffer = struct {
+fn swapBuffers(
     ring: *Ring,
-    read_file: ReadFile,
-    text_buf: []u8,
+    direct_file: DirectFile,
+    searched_text: []const u8,
     pos: usize,
-    /// The end of data inside the chunk buffer, not the end of the text slice
-    /// returned by refillChunkBuffer().
-    data_end: usize,
-    is_last_chunk: bool,
-};
-
-/// Moves the data after `new_start_pos` to the start of the internal buffer,
-/// fills the remaining part of the buffer with data from `file` and updates
-/// `chunk_buf.pos`, `chunk_buf.data_end` and `chunk_buf.is_last_chunk`.
-/// Then returns a slice of text from the start of the internal buffer until
-/// the last line ending. Newlines are included if they are present.
-inline fn refillChunkBuffer(chunk_buf: *ChunkBuffer, new_start_pos: usize) ![]const u8 {
-    // TODO: have a main text buffer that is twice the size of the iovecs used by iouring
-    // always read a complete IO_URING_BUF_SIZE and copy over to the main text_buffer,
-    // at the position we are at.
-    // knowing what size to read allows reading further parts of the file while searching the current buffer...
-
-    std.debug.assert(new_start_pos <= chunk_buf.pos);
-
-    const num_reused_bytes = chunk_buf.data_end - new_start_pos;
-    std.mem.copyForwards(u8, chunk_buf.text_buf, chunk_buf.text_buf[new_start_pos..chunk_buf.data_end]);
-    chunk_buf.pos = chunk_buf.pos - new_start_pos;
-
-    const ring = chunk_buf.ring;
-    const read_file = chunk_buf.read_file;
-    const user_data = toUserData(.{ .ReadFile = read_file });
-
-    // IMPORTANT: has to stay valid until this operations com
-    var buffer = ring.text_bufs[read_file.buf_idx];
-    buffer.len -= num_reused_bytes;
-
-    const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
-    const sqe = try chunk_buf.ring.ring.read_fixed(user_data, read_file.buf_idx, &buffer, file_offset, read_file.buf_idx);
-    sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
-    _ = try ring.ring.submit();
-
+    is_last_chunk: *bool,
+    searching_swap_buf: *bool,
+) ![]const u8 {
     // block waiting for our read to come through
     const len: usize = while (true) {
         const cqe = try nextNewCqe(ring);
-        std.debug.print("{}\n", .{cqe});
         switch (cqe.op) {
             .ReadFile => |f| {
-                if (f.buf_idx == read_file.buf_idx) {
+                if (f.fd_idx == direct_file.fd_idx) {
                     break @intCast(cqe.res);
                 }
             },
             else => {},
         }
-        ring.queue[ring.queue_end % IO_URING_BUF_SIZE] = cqe;
+        ring.queue[ring.queue_end % IO_URING_NUM_SLOTS] = cqe;
         ring.queue_end += 1;
     };
 
-    chunk_buf.data_end = num_reused_bytes + len;
-    chunk_buf.is_last_chunk = chunk_buf.data_end < chunk_buf.text_buf.len;
+    is_last_chunk.* = len < TEXT_BUF_READ_SIZE;
 
-    var text_end = chunk_buf.data_end;
-    if (!chunk_buf.is_last_chunk) {
-        const last_line_end = indexOfScalarPosRev(u8, chunk_buf.text_buf, chunk_buf.data_end, '\n');
-        if (last_line_end) |end| {
-            text_end = end;
-        }
+    const next_search_buf_idx = if (searching_swap_buf.*) direct_file.fd_idx else IO_URING_SWAP_BUF_IDX;
+    const next_search_text_buf = ring.completeTextBuf(next_search_buf_idx);
+    const copied_text = searched_text[pos..];
+    @memcpy(next_search_text_buf[TEXT_BUF_READ_SIZE - copied_text.len .. TEXT_BUF_READ_SIZE], copied_text);
+
+    if (!is_last_chunk.*) {
+        const next_read_buf_idx = if (searching_swap_buf.*) IO_URING_SWAP_BUF_IDX else direct_file.fd_idx;
+        const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+        const user_data = toUserData(.{ .ReadFile = direct_file });
+        const buffer = &ring.text_bufs[next_read_buf_idx];
+        const buffer_idx = next_read_buf_idx;
+        const sqe = try ring.ring.read_fixed(user_data, direct_file.fd_idx, buffer, file_offset, buffer_idx);
+        sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
+        _ = try ring.ring.submit();
     }
-    return chunk_buf.text_buf[0..text_end];
+
+    searching_swap_buf.* = !searching_swap_buf.*;
+
+    return next_search_text_buf[TEXT_BUF_READ_SIZE - copied_text.len .. TEXT_BUF_READ_SIZE + len];
 }
 
 inline fn textIndex(text: []const u8, slice_of_text: []const u8) usize {
@@ -1181,14 +1159,14 @@ inline fn printPath(sink: *SinkBuf, input_paths: []const []const u8, path: *cons
 }
 
 /// Prints the remainder of `lml`. The remainder is found by comparing the `lml.ptr` with `text.ptr`.
-/// Returns the end of the line.
-inline fn printRemainder(sink: *SinkBuf, chunk_buf: *ChunkBuffer, text: []const u8, lml: []const u8) !usize {
+/// Returns the end of the line, including the newline if present.
+inline fn printRemainder(sink: *SinkBuf, pos: usize, text: []const u8, lml: []const u8) !usize {
     const lml_start = textIndex(text, lml);
     const lml_end = lml_start + lml.len;
 
-    std.debug.assert(chunk_buf.pos <= lml_end);
+    std.debug.assert(pos <= lml_end);
 
-    const remainder = text[chunk_buf.pos..lml_end];
+    const remainder = text[pos..lml_end];
     try sink.print("{s}\n", .{remainder});
 
     return @min(lml_end + 1, text.len);
