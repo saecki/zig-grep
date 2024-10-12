@@ -837,6 +837,7 @@ fn searchFile(
     }
 
     var text: []const u8 = ring.textReadBuf(direct_file.fd_idx)[0..len];
+    var pos: usize = 0;
     var is_last_chunk = len < TEXT_BUF_READ_SIZE;
     var searching_swap_buf = false;
 
@@ -869,7 +870,6 @@ fn searchFile(
     var last_printed_line_num: ?u32 = null;
 
     while (true) {
-        var pos: usize = 0;
         var chunk_has_match = false;
         var line_iter = std.mem.splitScalar(u8, text[pos..], '\n');
         var last_matched_line: ?[]const u8 = null;
@@ -1083,7 +1083,7 @@ fn searchFile(
         }
 
         // include lines that may have to be printed as `before_context`
-        var new_start_pos = if (chunk_has_match) pos else text.len;
+        var reused_pos = if (chunk_has_match) pos else text.len;
         if (opts.before_context > 0) {
             var cline_end = pos;
             for (0..opts.before_context) |_| {
@@ -1094,7 +1094,7 @@ fn searchFile(
                     }
                 }
 
-                new_start_pos = cline_start;
+                reused_pos = cline_start;
 
                 if (cline_start == 0) {
                     break;
@@ -1103,7 +1103,7 @@ fn searchFile(
             }
         }
 
-        text = try swapBuffers(ring, direct_file, text, new_start_pos, &is_last_chunk, &searching_swap_buf);
+        text = try swapBuffers(ring, direct_file, text, reused_pos, &pos, &is_last_chunk, &searching_swap_buf);
     }
 
     if (file_has_match) {
@@ -1119,7 +1119,8 @@ fn swapBuffers(
     ring: *Ring,
     direct_file: DirectFile,
     searched_text: []const u8,
-    pos: usize,
+    reused_pos: usize,
+    pos: *usize,
     is_last_chunk: *bool,
     searching_swap_buf: *bool,
 ) ![]const u8 {
@@ -1141,7 +1142,7 @@ fn swapBuffers(
 
     const next_search_buf_idx = if (searching_swap_buf.*) direct_file.fd_idx else IO_URING_SWAP_BUF_IDX;
     const next_search_text_buf = ring.completeTextBuf(next_search_buf_idx);
-    const copied_text = searched_text[pos..];
+    const copied_text = searched_text[reused_pos..];
     @memcpy(next_search_text_buf[TEXT_BUF_READ_SIZE - copied_text.len .. TEXT_BUF_READ_SIZE], copied_text);
 
     if (!is_last_chunk.*) {
@@ -1157,6 +1158,7 @@ fn swapBuffers(
 
     searching_swap_buf.* = !searching_swap_buf.*;
 
+    pos.* = copied_text.len;
     return next_search_text_buf[TEXT_BUF_READ_SIZE - copied_text.len .. TEXT_BUF_READ_SIZE + len];
 }
 
