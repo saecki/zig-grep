@@ -87,6 +87,17 @@ pub fn AtomicStack(comptime T: type) type {
 
             return Message{ .Some = val };
         }
+
+        /// Mark a worker thread as dead.
+        pub fn dead(self: *Self) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            self.alive_workers -= 1;
+            if (self.alive_workers == 0) {
+                self.condition.broadcast();
+            }
+        }
     };
 }
 

@@ -318,7 +318,11 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
         const msg = stack.pop();
         switch (msg) {
             .Some => |entry| {
-                try walkPath(allocator, stack, &ring, &line_buf, &sink, &params, &path_buf, entry);
+                walkPath(allocator, stack, &ring, &line_buf, &sink, &params, &path_buf, entry) catch |err| {
+                    std.debug.print("error: {}\n", .{err});
+                    stack.dead();
+                    break;
+                };
             },
             .Stop => break,
         }
