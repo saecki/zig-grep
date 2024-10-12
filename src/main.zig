@@ -58,6 +58,15 @@ const DisplayPath = struct {
     /// Start offset of the subpath inside the `abs` path.
     /// The subpath that can then be appended to the `display_prefix`.
     sub_path_offset: u16,
+
+    fn alloc(allocator: Allocator, abs: []const u8, display_prefix: ?u16, sub_path_offset: u16) !DisplayPath {
+        const owned_abs_path = try allocSlice(u8, allocator, abs);
+        return DisplayPath{
+            .abs = owned_abs_path,
+            .display_prefix = display_prefix,
+            .sub_path_offset = sub_path_offset,
+        };
+    }
 };
 
 const GrepError = error{
@@ -188,19 +197,14 @@ fn run(stdout: Stdout) !void {
     if (input_paths.items.len == 0) {
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const abs_path = try std.fs.realpath(".", &path_buf);
-        const owned_abs_path = try allocSlice(u8, allocator, abs_path);
-        const path = DisplayPath{
-            .abs = owned_abs_path,
-            .display_prefix = null,
-            .sub_path_offset = @truncate(abs_path.len),
-        };
+        const owned_path = try DisplayPath.alloc(allocator, abs_path, null, @truncate(abs_path.len));
 
         const dir = try std.fs.openDirAbsolute(abs_path, DIR_OPEN_OPTIONS);
         try stack_buf.append(WalkerEntry{
             .priority = 0,
             .data = DirIter{
                 .iter = dir.iterate(),
-                .path = path,
+                .path = owned_path,
             },
         });
     } else {
@@ -337,6 +341,7 @@ const Ring = struct {
     /// The last extra buffer is used as a swap buffer when reading large files, to avoid copying.
     text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec,
     paths: [IO_URING_FILE_SLOTS]DisplayPath = undefined,
+    posix_paths: [IO_URING_FILE_SLOTS][std.os.linux.PATH_MAX - 1:0]u8 = undefined,
     used_mask: u8 = 0,
 
     allocator: Allocator,
@@ -344,7 +349,7 @@ const Ring = struct {
     const Self = @This();
 
     fn init(allocator: Allocator) !Self {
-        const flags = 0; // std.os.linux.IORING_FEAT_RW_CUR_POS | std.os.linux.IORING_FEAT_RSRC_TAGS;
+        const flags = std.os.linux.IORING_SETUP_SQPOLL;
         const io_uring = try std.os.linux.IoUring.init(IO_URING_QUEUE_SLOTS, flags);
         const text_base_buf = try allocator.alloc(u8, IO_URING_TEXT_BUF_SLOTS * TEXT_BUF_SIZE);
         var text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec = undefined;
@@ -478,23 +483,24 @@ fn walkPath(
 
             switch (e.kind) {
                 .file => {
-                    const owned_abs_path = try allocSlice(u8, ring.allocator, path_buf.items);
-                    ring.paths[fd_idx] = DisplayPath{
-                        .abs = owned_abs_path,
-                        .display_prefix = dir_path.display_prefix,
-                        .sub_path_offset = dir_path.sub_path_offset,
-                    };
+                    ring.paths[fd_idx] = try DisplayPath.alloc(
+                        ring.allocator,
+                        path_buf.items,
+                        dir_path.display_prefix,
+                        dir_path.sub_path_offset,
+                    );
                     ring.useFdIdx(fd_idx);
 
                     {
                         const user_data = toUserData(.OpenFile);
                         const dir_fd = std.fs.cwd().fd;
                         // TODO: does this live long enough?
-                        const pathz = try std.posix.toPosixPath(path_buf.items);
+                        ring.posix_paths[fd_idx] = try std.posix.toPosixPath(path_buf.items);
+                        const pathz = &ring.posix_paths[fd_idx];
                         const flags = std.os.linux.O{ .NOFOLLOW = true };
                         const mode: std.os.linux.mode_t = 1 << 2; // READONLY
                         const file_index = fd_idx;
-                        const sqe = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
+                        const sqe = try ring.ring.openat_direct(user_data, dir_fd, pathz, flags, mode, file_index);
                         sqe.flags |= std.os.linux.IOSQE_IO_LINK;
                     }
 
@@ -511,14 +517,13 @@ fn walkPath(
                     _ = try ring.ring.submit();
                 },
                 .directory => {
-                    const owned_abs_path = try allocSlice(u8, allocator, path_buf.items);
-
-                    const sub_dir = try std.fs.openDirAbsolute(owned_abs_path, DIR_OPEN_OPTIONS);
-                    const sub_dir_path = DisplayPath{
-                        .abs = owned_abs_path,
-                        .display_prefix = dir_path.display_prefix,
-                        .sub_path_offset = dir_path.sub_path_offset,
-                    };
+                    const sub_dir = try std.fs.openDirAbsolute(path_buf.items, DIR_OPEN_OPTIONS);
+                    const sub_dir_path = try DisplayPath.alloc(
+                        ring.allocator,
+                        path_buf.items,
+                        dir_path.display_prefix,
+                        dir_path.sub_path_offset,
+                    );
                     const sub_dir_entry = WalkerEntry{
                         .priority = dir_entry.priority + 1,
                         .data = DirIter{
@@ -649,10 +654,10 @@ fn handleCqe(
         .OpenFile => {}, // read operation is chained, no need to do anything
         .ReadFile => |direct_file| {
             const len: usize = @intCast(cqe.res);
-            defer ring.allocator.free(ring.paths[direct_file.fd_idx].abs);
             try searchFile(ring, line_buf, sink, params, direct_file, len);
         },
         .CloseFile => |direct_file| {
+            ring.allocator.free(ring.paths[direct_file.fd_idx].abs);
             ring.returnFdIdx(direct_file.fd_idx);
         },
     }
@@ -736,12 +741,12 @@ inline fn getDirIterOrSearch(
     switch (stat.kind) {
         .file => {
             const fd_idx = ring.availableFdIdx().?;
-            const owned_abs_path = try allocSlice(u8, allocator, path.abs);
-            const owned_path = DisplayPath{
-                .abs = owned_abs_path,
-                .display_prefix = path.display_prefix,
-                .sub_path_offset = path.sub_path_offset,
-            };
+            const owned_path = try DisplayPath.alloc(
+                allocator,
+                path.abs,
+                path.display_prefix,
+                path.sub_path_offset,
+            );
             ring.paths[fd_idx] = owned_path;
             ring.useFdIdx(fd_idx);
 
@@ -1120,8 +1125,7 @@ fn swapBuffers(
             },
             else => {},
         }
-        ring.queue[ring.queue_end % IO_URING_QUEUE_SLOTS] = cqe;
-        ring.queue_end += 1;
+        ring.queuePushBackUnchecked(cqe);
     };
 
     is_last_chunk.* = len < TEXT_BUF_READ_SIZE;
