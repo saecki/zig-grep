@@ -17,7 +17,7 @@ const WalkerEntry = AtomicStack(DirIter).Entry;
 const Sink = atomic.Sink;
 const SinkBuf = atomic.SinkBuf;
 
-const TEXT_BUF_SIZE = 1 << 16;
+const TEXT_BUF_SIZE = 1 << 19;
 const TEXT_BUF_READ_SIZE = TEXT_BUF_SIZE / 2;
 const SINK_BUF_SIZE = 1 << 12;
 
@@ -38,7 +38,7 @@ const Params = struct {
 const WorkerContext = struct {
     allocator: Allocator,
     stack: *AtomicStack(DirIter),
-    sink: SinkBuf,
+    sink: *Sink,
     regex: *c.rure,
     opts: *const UserOptions,
     input_paths: []const []const u8,
@@ -177,6 +177,8 @@ fn run(stdout: Stdout) !void {
         }
     }
 
+    num_threads = 1;
+
     // synchronize writes to stdout from here on
     var sink = Sink.init(stdout);
 
@@ -215,6 +217,11 @@ fn run(stdout: Stdout) !void {
             .opts = &opts,
             .input_paths = input_paths.items,
         };
+
+        var ring = try Ring.init(allocator);
+        defer ring.deinit();
+        try ring.setup();
+
         for (input_paths.items, 0..) |input_path, i| {
             var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const abs_path = try std.fs.realpath(input_path, &path_buf);
@@ -223,8 +230,6 @@ fn run(stdout: Stdout) !void {
                 .display_prefix = @truncate(i),
                 .sub_path_offset = @truncate(abs_path.len),
             };
-            // TODO
-            var ring: Ring = undefined;
 
             const dir_iter = try getDirIterOrSearch(allocator, &ring, &line_buf, &sink_buf, &params, path);
             if (dir_iter) |d| {
@@ -244,12 +249,10 @@ fn run(stdout: Stdout) !void {
     var group = std.Thread.WaitGroup{};
     var stack = AtomicStack(DirIter).init(&stack_buf, num_threads);
     for (0..num_threads) |_| {
-        const buf = try allocator.alloc(u8, SINK_BUF_SIZE);
-        const sink_buf = SinkBuf.init(&sink, buf);
         const ctx = WorkerContext{
             .allocator = allocator,
             .stack = &stack,
-            .sink = sink_buf,
+            .sink = &sink,
             .regex = regex,
             .opts = &opts,
             .input_paths = input_paths.items,
@@ -286,8 +289,10 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
 
     var allocator = ctx.allocator;
     var stack = ctx.stack;
-    var sink = ctx.sink;
-    defer allocator.free(sink.buf);
+    const sink_buf = try allocator.alloc(u8, SINK_BUF_SIZE);
+    defer allocator.free(sink_buf);
+    var sink = SinkBuf.init(ctx.sink, sink_buf);
+
     const params = Params{
         .regex = ctx.regex,
         .opts = ctx.opts,
@@ -316,13 +321,14 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     }
 }
 
-const IO_URING_NUM_SLOTS = 1 << 2;
-const IO_URING_TEXT_BUF_SLOTS = IO_URING_NUM_SLOTS + 1;
-const IO_URING_SWAP_BUF_IDX = IO_URING_NUM_SLOTS;
+const IO_URING_FILE_SLOTS = 1 << 1;
+const IO_URING_QUEUE_SLOTS = 2 * IO_URING_FILE_SLOTS;
+const IO_URING_TEXT_BUF_SLOTS = IO_URING_FILE_SLOTS + 1;
+const IO_URING_SWAP_BUF_IDX = IO_URING_FILE_SLOTS;
 const Ring = struct {
     ring: std.os.linux.IoUring,
     /// external queue for CQEs that should be handled later
-    queue: [2 * IO_URING_NUM_SLOTS]Cqe = undefined,
+    queue: [IO_URING_QUEUE_SLOTS]Cqe = undefined,
     queue_start: usize = 0,
     queue_end: usize = 0,
 
@@ -330,7 +336,7 @@ const Ring = struct {
     text_base_buf: []u8,
     /// The last extra buffer is used as a swap buffer when reading large files, to avoid copying.
     text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec,
-    paths: [IO_URING_NUM_SLOTS]DisplayPath = undefined,
+    paths: [IO_URING_FILE_SLOTS]DisplayPath = undefined,
     used_mask: u8 = 0,
 
     allocator: Allocator,
@@ -339,7 +345,7 @@ const Ring = struct {
 
     fn init(allocator: Allocator) !Self {
         const flags = 0; // std.os.linux.IORING_FEAT_RW_CUR_POS | std.os.linux.IORING_FEAT_RSRC_TAGS;
-        const io_uring = try std.os.linux.IoUring.init(2 * IO_URING_NUM_SLOTS, flags);
+        const io_uring = try std.os.linux.IoUring.init(IO_URING_QUEUE_SLOTS, flags);
         const text_base_buf = try allocator.alloc(u8, IO_URING_TEXT_BUF_SLOTS * TEXT_BUF_SIZE);
         var text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec = undefined;
         for (0..IO_URING_TEXT_BUF_SLOTS) |i| {
@@ -358,7 +364,7 @@ const Ring = struct {
 
     /// The `Ring` can't be moved once this has been called.
     fn setup(self: *Self) !void {
-        const fds = [1]std.os.linux.fd_t{-1} ** IO_URING_NUM_SLOTS;
+        const fds = [1]std.os.linux.fd_t{-1} ** IO_URING_FILE_SLOTS;
         try self.ring.register_files(&fds);
         try self.ring.register_buffers(&self.text_bufs);
     }
@@ -373,7 +379,7 @@ const Ring = struct {
         // => trailing ones
         // => first zero
         const idx = @ctz(~self.used_mask);
-        if (idx < IO_URING_NUM_SLOTS) {
+        if (idx < IO_URING_FILE_SLOTS) {
             return @intCast(idx);
         }
         return null;
@@ -393,6 +399,19 @@ const Ring = struct {
 
     fn cqeAvailable(self: *Self) bool {
         return (self.queue_end - self.queue_start) > 0 or self.ring.cq_ready() > 0;
+    }
+
+    fn queuePopFrontUnchecked(self: *Self) Cqe {
+        std.debug.assert(self.queue_start < self.queue_end);
+        const cqe = self.queue[self.queue_start % IO_URING_QUEUE_SLOTS];
+        self.queue_start += 1;
+        return cqe;
+    }
+
+    fn queuePushBackUnchecked(self: *Self, cqe: Cqe) void {
+        std.debug.assert(self.queue_end - self.queue_start < IO_URING_QUEUE_SLOTS);
+        self.queue[self.queue_end % IO_URING_QUEUE_SLOTS] = cqe;
+        self.queue_end += 1;
     }
 
     /// Only return the last half of a text buffer
@@ -470,6 +489,7 @@ fn walkPath(
                     {
                         const user_data = toUserData(.OpenFile);
                         const dir_fd = std.fs.cwd().fd;
+                        // TODO: does this live long enough?
                         const pathz = try std.posix.toPosixPath(path_buf.items);
                         const flags = std.os.linux.O{ .NOFOLLOW = true };
                         const mode: std.os.linux.mode_t = 1 << 2; // READONLY
@@ -627,12 +647,13 @@ fn handleCqe(
     const cqe = try nextQueuedCqe(ring);
     switch (cqe.op) {
         .OpenFile => {}, // read operation is chained, no need to do anything
-        .ReadFile => |f| {
+        .ReadFile => |direct_file| {
             const len: usize = @intCast(cqe.res);
-            try searchFile(ring, line_buf, sink, params, f, len);
+            defer ring.allocator.free(ring.paths[direct_file.fd_idx].abs);
+            try searchFile(ring, line_buf, sink, params, direct_file, len);
         },
-        .CloseFile => |f| {
-            ring.returnFdIdx(f.fd_idx);
+        .CloseFile => |direct_file| {
+            ring.returnFdIdx(direct_file.fd_idx);
         },
     }
 }
@@ -646,9 +667,7 @@ const Cqe = struct {
 
 fn nextQueuedCqe(ring: *Ring) !Cqe {
     if (ring.queue_end - ring.queue_start > 0) {
-        const cqe = ring.queue[ring.queue_start % IO_URING_NUM_SLOTS];
-        ring.queue_start += 1;
-        return cqe;
+        return ring.queuePopFrontUnchecked();
     }
 
     return nextNewCqe(ring);
@@ -716,8 +735,40 @@ inline fn getDirIterOrSearch(
     const stat = try std.fs.cwd().statFile(path.abs);
     switch (stat.kind) {
         .file => {
-            // TODO
-            // try searchFile(line_buf, sink, params, file, &path);
+            const fd_idx = ring.availableFdIdx().?;
+            const owned_abs_path = try allocSlice(u8, allocator, path.abs);
+            const owned_path = DisplayPath{
+                .abs = owned_abs_path,
+                .display_prefix = path.display_prefix,
+                .sub_path_offset = path.sub_path_offset,
+            };
+            ring.paths[fd_idx] = owned_path;
+            ring.useFdIdx(fd_idx);
+
+            {
+                const user_data = toUserData(.OpenFile);
+                const dir_fd = std.fs.cwd().fd;
+                const pathz = try std.posix.toPosixPath(path.abs);
+                const flags = std.os.linux.O{ .NOFOLLOW = true };
+                const mode: std.os.linux.mode_t = 1 << 2; // READONLY
+                const file_index = fd_idx;
+                const sqe = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
+                sqe.flags |= std.os.linux.IOSQE_IO_LINK;
+            }
+            // the read operation is chained through the `IOSQE_IO_LINK` flag.
+            {
+                const fd: u8 = fd_idx;
+                const user_data = toUserData(.{ .ReadFile = .{ .fd_idx = fd_idx } });
+                const buffer = &ring.text_bufs[fd_idx];
+                const file_offset: u64 = @bitCast(@as(i64, -1)); // just continue reading at the last position
+                const sqe = try ring.ring.read_fixed(user_data, fd, buffer, file_offset, fd_idx);
+                sqe.flags |= std.os.linux.IOSQE_FIXED_FILE;
+            }
+            _ = try ring.ring.submit();
+
+            while (ring.numFilesInUse() > 0) {
+                try handleCqe(ring, line_buf, sink, params);
+            }
         },
         .directory => {
             const dir = try std.fs.openDirAbsolute(path.abs, DIR_OPEN_OPTIONS);
@@ -763,12 +814,12 @@ fn searchFile(
     const input_paths = params.input_paths;
 
     defer {
-        ring.allocator.free(path.abs);
-
         const user_data = toUserData(.{ .CloseFile = direct_file });
         if (ring.ring.close_direct(user_data, direct_file.fd_idx)) |_| {
             _ = ring.ring.submit() catch {};
-        } else |_| {}
+        } else |err| {
+            std.debug.print("error closing file {}: {}\n", .{ direct_file.fd_idx, err });
+        }
     }
 
     var text: []const u8 = ring.textReadBuf(direct_file.fd_idx)[0..len];
@@ -1069,7 +1120,7 @@ fn swapBuffers(
             },
             else => {},
         }
-        ring.queue[ring.queue_end % IO_URING_NUM_SLOTS] = cqe;
+        ring.queue[ring.queue_end % IO_URING_QUEUE_SLOTS] = cqe;
         ring.queue_end += 1;
     };
 
