@@ -325,8 +325,8 @@ fn startWorker(group: *std.Thread.WaitGroup, ctx: WorkerContext) !void {
     }
 }
 
-const IO_URING_FILE_SLOTS = 1 << 1;
-const IO_URING_QUEUE_SLOTS = 2 * IO_URING_FILE_SLOTS;
+const IO_URING_FILE_SLOTS = 1 << 2;
+const IO_URING_QUEUE_SLOTS = 4 * IO_URING_FILE_SLOTS;
 const IO_URING_TEXT_BUF_SLOTS = IO_URING_FILE_SLOTS + 1;
 const IO_URING_SWAP_BUF_IDX = IO_URING_FILE_SLOTS;
 const Ring = struct {
@@ -394,12 +394,22 @@ const Ring = struct {
         return @popCount(self.used_mask);
     }
 
-    fn useFdIdx(self: *Self, idx: u8) void {
+    fn useFdIdx(self: *Self, idx: u8, path: DisplayPath) ![:0]u8 {
+        std.debug.assert(self.used_mask & (@as(u8, 1) << @truncate(idx)) == 0);
+
         self.used_mask |= @as(u8, 1) << @truncate(idx);
+        self.paths[idx] = path;
+        self.posix_paths[idx] = try std.posix.toPosixPath(path.abs);
+        return &self.posix_paths[idx];
     }
 
     fn returnFdIdx(self: *Self, idx: u8) void {
+        std.debug.assert(self.used_mask & (@as(u8, 1) << @truncate(idx)) != 0);
+
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
+        self.allocator.free(self.paths[idx].abs);
+        self.paths[idx] = undefined;
+        self.posix_paths[idx] = undefined;
     }
 
     fn cqeAvailable(self: *Self) bool {
@@ -483,20 +493,17 @@ fn walkPath(
 
             switch (e.kind) {
                 .file => {
-                    ring.paths[fd_idx] = try DisplayPath.alloc(
+                    const owned_path = try DisplayPath.alloc(
                         ring.allocator,
                         path_buf.items,
                         dir_path.display_prefix,
                         dir_path.sub_path_offset,
                     );
-                    ring.useFdIdx(fd_idx);
+                    const pathz = try ring.useFdIdx(fd_idx, owned_path);
 
                     {
-                        const user_data = toUserData(.OpenFile);
+                        const user_data = toUserData(.{ .OpenFile = .{ .fd_idx = fd_idx } });
                         const dir_fd = std.fs.cwd().fd;
-                        // TODO: does this live long enough?
-                        ring.posix_paths[fd_idx] = try std.posix.toPosixPath(path_buf.items);
-                        const pathz = &ring.posix_paths[fd_idx];
                         const flags = std.os.linux.O{ .NOFOLLOW = true };
                         const mode: std.os.linux.mode_t = 1 << 2; // READONLY
                         const file_index = fd_idx;
@@ -587,7 +594,7 @@ const OpKind = enum(u8) {
 
 // stored inside the `user_data` field of io_uring SQE and CQE
 const OpUserData = union(OpKind) {
-    OpenFile,
+    OpenFile: DirectFile,
     ReadFile: DirectFile,
     CloseFile: DirectFile,
 };
@@ -600,10 +607,7 @@ fn toUserData(op: OpUserData) u64 {
     const op_kind: OpKind = op;
     const kind = @intFromEnum(op_kind);
     switch (op) {
-        .OpenFile => {
-            return @as(u64, kind);
-        },
-        .ReadFile, .CloseFile => |f| {
+        .OpenFile, .ReadFile, .CloseFile => |f| {
             return (@as(u64, f.fd_idx) << 8) | @as(u64, kind);
         },
     }
@@ -612,7 +616,9 @@ fn toUserData(op: OpUserData) u64 {
 fn fromUserData(user_data: u64) OpUserData {
     const kind: OpKind = @enumFromInt(user_data & 0xFF);
     return switch (kind) {
-        .OpenFile => .OpenFile,
+        .OpenFile => .{ .OpenFile = .{
+            .fd_idx = @truncate((user_data >> 8) & 0xFF),
+        } },
         .ReadFile => .{ .ReadFile = .{
             .fd_idx = @truncate((user_data >> 8) & 0xFF),
         } },
@@ -657,7 +663,6 @@ fn handleCqe(
             try searchFile(ring, line_buf, sink, params, direct_file, len);
         },
         .CloseFile => |direct_file| {
-            ring.allocator.free(ring.paths[direct_file.fd_idx].abs);
             ring.returnFdIdx(direct_file.fd_idx);
         },
     }
@@ -680,12 +685,12 @@ fn nextQueuedCqe(ring: *Ring) !Cqe {
 
 fn nextNewCqe(ring: *Ring) !Cqe {
     const cqe = try ring.ring.copy_cqe();
+    const op = fromUserData(cqe.user_data);
     if (cqe.res < 0) {
-        std.debug.print("errno: {}\n", .{-cqe.res});
+        std.debug.print("errno: {} - {}\n", .{ -cqe.res, op });
         return error.IoUring;
     }
     const res: u32 = @intCast(cqe.res);
-    const op = fromUserData(cqe.user_data);
     const ret = .{ .op = op, .res = res, .flags = cqe.flags };
     return ret;
 }
@@ -747,17 +752,15 @@ inline fn getDirIterOrSearch(
                 path.display_prefix,
                 path.sub_path_offset,
             );
-            ring.paths[fd_idx] = owned_path;
-            ring.useFdIdx(fd_idx);
+            const pathz = try ring.useFdIdx(fd_idx, owned_path);
 
             {
-                const user_data = toUserData(.OpenFile);
+                const user_data = toUserData(.{ .OpenFile = .{ .fd_idx = fd_idx } });
                 const dir_fd = std.fs.cwd().fd;
-                const pathz = try std.posix.toPosixPath(path.abs);
                 const flags = std.os.linux.O{ .NOFOLLOW = true };
                 const mode: std.os.linux.mode_t = 1 << 2; // READONLY
                 const file_index = fd_idx;
-                const sqe = try ring.ring.openat_direct(user_data, dir_fd, &pathz, flags, mode, file_index);
+                const sqe = try ring.ring.openat_direct(user_data, dir_fd, pathz, flags, mode, file_index);
                 sqe.flags |= std.os.linux.IOSQE_IO_LINK;
             }
             // the read operation is chained through the `IOSQE_IO_LINK` flag.
@@ -821,7 +824,9 @@ fn searchFile(
     defer {
         const user_data = toUserData(.{ .CloseFile = direct_file });
         if (ring.ring.close_direct(user_data, direct_file.fd_idx)) |_| {
-            _ = ring.ring.submit() catch {};
+            _ = ring.ring.submit() catch |err| {
+                std.debug.print("error submitting file close {}: {}\n", .{ direct_file.fd_idx, err });
+            };
         } else |err| {
             std.debug.print("error closing file {}: {}\n", .{ direct_file.fd_idx, err });
         }
@@ -830,6 +835,18 @@ fn searchFile(
     var text: []const u8 = ring.textReadBuf(direct_file.fd_idx)[0..len];
     var is_last_chunk = len < TEXT_BUF_READ_SIZE;
     var searching_swap_buf = false;
+
+    // detect binary files
+    const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
+    if (null_byte) |_| {
+        if (opts.debug) {
+            try sink.writeAll("Not searching binary file: \"");
+            try printPath(sink, input_paths, path);
+            try sink.writeAll("\"\n");
+            try sink.end();
+        }
+        return;
+    }
 
     // start reading next chunk into the swap buffer
     if (!is_last_chunk) {
@@ -846,18 +863,6 @@ fn searchFile(
     var line_num: u32 = 1;
     var last_matched_line_num: ?u32 = null;
     var last_printed_line_num: ?u32 = null;
-
-    // detect binary files
-    const null_byte = std.mem.indexOfScalar(u8, text, 0x00);
-    if (null_byte) |_| {
-        if (opts.debug) {
-            try sink.writeAll("Not searching binary file: \"");
-            try printPath(sink, input_paths, path);
-            try sink.writeAll("\"\n");
-            try sink.end();
-        }
-        return;
-    }
 
     while (true) {
         var pos: usize = 0;
