@@ -17,7 +17,7 @@ const WalkerEntry = AtomicStack(DirIter).Entry;
 const Sink = atomic.Sink;
 const SinkBuf = atomic.SinkBuf;
 
-const TEXT_BUF_SIZE = 1 << 18;
+const TEXT_BUF_SIZE = 1 << 17;
 const TEXT_BUF_READ_SIZE = TEXT_BUF_SIZE / 2;
 const SINK_BUF_SIZE = 1 << 12;
 
@@ -186,8 +186,6 @@ fn run(stdout: Stdout) !void {
         }
     }
 
-    num_threads = 1;
-
     // synchronize writes to stdout from here on
     var sink = Sink.init(stdout);
 
@@ -353,7 +351,7 @@ const Ring = struct {
     const Self = @This();
 
     fn init(allocator: Allocator) !Self {
-        const flags = std.os.linux.IORING_SETUP_SQPOLL;
+        const flags = 0; // std.os.linux.IORING_SETUP_SQPOLL;
         const io_uring = try std.os.linux.IoUring.init(IO_URING_QUEUE_SLOTS, flags);
         const text_base_buf = try allocator.alloc(u8, IO_URING_TEXT_BUF_SLOTS * TEXT_BUF_SIZE);
         var text_bufs: [IO_URING_TEXT_BUF_SLOTS]std.posix.iovec = undefined;
