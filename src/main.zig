@@ -396,12 +396,16 @@ const Ring = struct {
         return @popCount(self.used_mask);
     }
 
-    fn useFdIdx(self: *Self, idx: u8, path: DisplayPath) ![:0]u8 {
+    fn useFdIdx(self: *Self, idx: u8, abs: []const u8, display_prefix: ?u16, sub_path_offset: u16) ![:0]u8 {
         std.debug.assert(self.used_mask & (@as(u8, 1) << @truncate(idx)) == 0);
 
         self.used_mask |= @as(u8, 1) << @truncate(idx);
-        self.paths[idx] = path;
-        self.posix_paths[idx] = try std.posix.toPosixPath(path.abs);
+        self.posix_paths[idx] = try std.posix.toPosixPath(abs);
+        self.paths[idx] = DisplayPath{
+            .abs = self.posix_paths[idx][0..abs.len],
+            .display_prefix = display_prefix,
+            .sub_path_offset = sub_path_offset,
+        };
         return &self.posix_paths[idx];
     }
 
@@ -409,7 +413,6 @@ const Ring = struct {
         std.debug.assert(self.used_mask & (@as(u8, 1) << @truncate(idx)) != 0);
 
         self.used_mask &= ~(@as(u8, 1) << @truncate(idx));
-        self.allocator.free(self.paths[idx].abs);
         self.paths[idx] = undefined;
         self.posix_paths[idx] = undefined;
     }
@@ -495,13 +498,7 @@ fn walkPath(
 
             switch (e.kind) {
                 .file => {
-                    const owned_path = try DisplayPath.alloc(
-                        ring.allocator,
-                        path_buf.items,
-                        dir_path.display_prefix,
-                        dir_path.sub_path_offset,
-                    );
-                    const pathz = try ring.useFdIdx(fd_idx, owned_path);
+                    const pathz = try ring.useFdIdx(fd_idx, path_buf.items, dir_path.display_prefix, dir_path.sub_path_offset);
 
                     {
                         const user_data = toUserData(.{ .OpenFile = .{ .fd_idx = fd_idx } });
@@ -748,13 +745,7 @@ inline fn getDirIterOrSearch(
     switch (stat.kind) {
         .file => {
             const fd_idx = ring.availableFdIdx().?;
-            const owned_path = try DisplayPath.alloc(
-                allocator,
-                path.abs,
-                path.display_prefix,
-                path.sub_path_offset,
-            );
-            const pathz = try ring.useFdIdx(fd_idx, owned_path);
+            const pathz = try ring.useFdIdx(fd_idx, path.abs, path.display_prefix, path.sub_path_offset);
 
             {
                 const user_data = toUserData(.{ .OpenFile = .{ .fd_idx = fd_idx } });
