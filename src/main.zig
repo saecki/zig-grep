@@ -17,7 +17,7 @@ const WalkerEntry = AtomicStack(DirIter).Entry;
 const Sink = atomic.Sink;
 const SinkBuf = atomic.SinkBuf;
 
-const TEXT_BUF_SIZE = 1 << 19;
+const TEXT_BUF_SIZE = 1 << 18;
 const TEXT_BUF_READ_SIZE = TEXT_BUF_SIZE / 2;
 const SINK_BUF_SIZE = 1 << 12;
 
